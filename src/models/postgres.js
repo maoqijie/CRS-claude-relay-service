@@ -19,7 +19,26 @@ class PostgresClient {
     }
 
     if (this.pool) {
-      return this.pool
+      if (this.isConnected) {
+        return this.pool
+      }
+
+      try {
+        await this.pool.query('SELECT 1')
+        this.isConnected = true
+        logger.info('🐘 PostgreSQL reconnected successfully')
+        return this.pool
+      } catch (error) {
+        this.isConnected = false
+        logger.warn(`⚠️ PostgreSQL reconnect failed, recreating pool: ${error.message}`)
+
+        try {
+          await this.pool.end()
+        } catch (endError) {
+          // ignore
+        }
+        this.pool = null
+      }
     }
 
     const pgConfig = config.postgres || {}
@@ -82,13 +101,19 @@ class PostgresClient {
   }
 
   async query(text, params) {
-    if (!this.pool) {
+    if (!this.pool || !this.isConnected) {
       await this.connect()
     }
     if (!this.pool || !this.isConnected) {
       throw new Error('PostgreSQL is not connected')
     }
-    return await this.pool.query(text, params)
+
+    try {
+      return await this.pool.query(text, params)
+    } catch (error) {
+      this.isConnected = false
+      throw error
+    }
   }
 }
 
