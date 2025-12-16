@@ -947,10 +947,34 @@ async function calculateKeyStats(keyId, timeRange, startDate, endDate) {
       dailyCost = await redis.getDailyCost(keyId)
     }
 
-    // 只在启用了总费用限制时查询
-    if (totalCostLimit > 0) {
+    // 获取累积总费用（用于全时统计/总费用限制）
+    if (timeRange === 'all' || totalCostLimit > 0) {
       const totalCostKey = `usage:cost:total:${keyId}`
       allTimeCost = parseFloat((await client.get(totalCostKey)) || '0')
+    }
+
+    // 🔧 FIX: 对于 "全部时间" 时间范围，直接使用 allTimeCost
+    // 因为 usage:*:model:daily:* 键有 30 天 TTL，旧数据已经过期
+    if (timeRange === 'all' && allTimeCost > 0) {
+      logger.debug(`📊 使用 allTimeCost 计算 timeRange='all': ${allTimeCost}`)
+
+      return {
+        requests: 0, // 旧数据详情不可用
+        tokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreateTokens: 0,
+        cacheReadTokens: 0,
+        cost: allTimeCost,
+        formattedCost: CostCalculator.formatCost(allTimeCost),
+        // 实时限制数据（始终返回，不受时间范围影响）
+        dailyCost,
+        currentWindowCost,
+        windowRemainingSeconds,
+        windowStartTime,
+        windowEndTime,
+        allTimeCost
+      }
     }
 
     // 只在启用了窗口限制时查询窗口数据
