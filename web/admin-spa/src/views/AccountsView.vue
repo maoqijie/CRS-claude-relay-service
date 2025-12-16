@@ -3481,7 +3481,7 @@ const batchDeleteAccounts = async () => {
   let nextIndex = 0
 
   const worker = async () => {
-    while (true) {
+    while (nextIndex < targets.length) {
       const account = targets[nextIndex]
       nextIndex += 1
       if (!account) {
