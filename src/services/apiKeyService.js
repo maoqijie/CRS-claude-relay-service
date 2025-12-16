@@ -2034,48 +2034,63 @@ class ApiKeyService {
         return 0
       }
 
-      // 获取所有API Keys
-      const allKeys = await this.getAllApiKeys()
+      const matchValue =
+        accountType === 'openai-responses'
+          ? `responses:${accountId}`
+          : accountType === 'gemini-api'
+            ? `api:${accountId}`
+            : accountId
+
+      const keyIds = await redis.scanApiKeyIds()
+      const apiKeyMetas = await redis.batchGetApiKeys(keyIds, {
+        fields: ['name', 'isDeleted', field],
+        parse: false
+      })
 
       // 筛选绑定到此账号的 API Keys
-      let boundKeys = []
-      if (accountType === 'openai-responses') {
-        // OpenAI-Responses 特殊处理：查找 openaiAccountId 字段中带 responses: 前缀的
-        boundKeys = allKeys.filter((key) => key.openaiAccountId === `responses:${accountId}`)
-      } else if (accountType === 'gemini-api') {
-        // Gemini-API 特殊处理：查找 geminiAccountId 字段中带 api: 前缀的
-        boundKeys = allKeys.filter((key) => key.geminiAccountId === `api:${accountId}`)
-      } else {
-        // 其他账号类型正常匹配
-        boundKeys = allKeys.filter((key) => key[field] === accountId)
-      }
+      const boundKeys = apiKeyMetas.filter(
+        (key) => key && key.isDeleted !== 'true' && key[field] === matchValue
+      )
 
       // 批量解绑
-      for (const key of boundKeys) {
-        const updates = {}
-        if (accountType === 'openai-responses') {
-          updates.openaiAccountId = null
-        } else if (accountType === 'gemini-api') {
-          updates.geminiAccountId = null
-        } else if (accountType === 'claude-console') {
-          updates.claudeConsoleAccountId = null
-        } else {
-          updates[field] = null
+      const updates = { [field]: null }
+      let successCount = 0
+      const failures = []
+      const concurrency = 10
+
+      for (let offset = 0; offset < boundKeys.length; offset += concurrency) {
+        const chunk = boundKeys.slice(offset, offset + concurrency)
+        const results = await Promise.allSettled(
+          chunk.map(async (key) => {
+            await this.updateApiKey(key.id, updates)
+            return key
+          })
+        )
+
+        for (const result of results) {
+          if (result.status === 'fulfilled') {
+            successCount += 1
+            const key = result.value
+            logger.debug(
+              `✅ 自动解绑 API Key ${key.id} (${key.name || ''}) 从 ${accountType} 账号 ${accountId}`
+            )
+          } else {
+            failures.push(result.reason?.message || 'unknown error')
+          }
         }
+      }
 
-        await this.updateApiKey(key.id, updates)
-        logger.info(
-          `✅ 自动解绑 API Key ${key.id} (${key.name}) 从 ${accountType} 账号 ${accountId}`
+      if (successCount > 0) {
+        logger.success(`🔓 成功解绑 ${successCount} 个 API Key 从 ${accountType} 账号 ${accountId}`)
+      }
+
+      if (failures.length > 0) {
+        logger.warn(
+          `⚠️ 解绑 API Key 部分失败 (${accountType} 账号 ${accountId}): ${failures.length} errors`
         )
       }
 
-      if (boundKeys.length > 0) {
-        logger.success(
-          `🔓 成功解绑 ${boundKeys.length} 个 API Key 从 ${accountType} 账号 ${accountId}`
-        )
-      }
-
-      return boundKeys.length
+      return successCount
     } catch (error) {
       logger.error(`❌ 解绑 API Keys 失败 (${accountType} 账号 ${accountId}):`, error)
       return 0

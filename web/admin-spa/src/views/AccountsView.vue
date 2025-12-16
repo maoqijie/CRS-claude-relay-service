@@ -3477,19 +3477,32 @@ const batchDeleteAccounts = async () => {
   let totalUnboundKeys = 0
   const failedDetails = []
 
-  for (const account of targets) {
-    const result = await performAccountDeletion(account)
-    if (result.success) {
-      successCount += 1
-      totalUnboundKeys += result.data?.unboundKeys || 0
-    } else {
-      failedCount += 1
-      failedDetails.push({
-        name: account.name || account.email || account.accountName || account.id,
-        message: result.message || '删除失败'
-      })
+  const maxConcurrency = Math.min(5, targets.length)
+  let nextIndex = 0
+
+  const worker = async () => {
+    while (true) {
+      const account = targets[nextIndex]
+      nextIndex += 1
+      if (!account) {
+        return
+      }
+
+      const result = await performAccountDeletion(account)
+      if (result.success) {
+        successCount += 1
+        totalUnboundKeys += result.data?.unboundKeys || 0
+      } else {
+        failedCount += 1
+        failedDetails.push({
+          name: account.name || account.email || account.accountName || account.id,
+          message: result.message || '删除失败'
+        })
+      }
     }
   }
+
+  await Promise.all(Array.from({ length: maxConcurrency }, () => worker()))
 
   if (successCount > 0) {
     let toastMessage = `成功删除 ${successCount} 个账户`
