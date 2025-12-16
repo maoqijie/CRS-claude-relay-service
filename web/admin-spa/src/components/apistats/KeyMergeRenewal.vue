@@ -108,6 +108,9 @@ const handleMergeRenewal = async () => {
       statsData.value.activationDays = result.data.activationValue
       statsData.value.activationUnit = result.data.activationUnit
     }
+    if (statsData.value?.limits && result.data?.totalCostLimit !== undefined) {
+      statsData.value.limits.totalCostLimit = Number(result.data.totalCostLimit) || 0
+    }
 
     const unitLabel = result.data?.extendUnit === 'hours' ? '小时' : '天'
     const extendText =
@@ -115,21 +118,28 @@ const handleMergeRenewal = async () => {
         ? `${result.data.extendValue}${unitLabel}`
         : '已续费'
 
+    const mergedTotalCostLimitDelta = Number(result.data?.mergedTotalCostLimitDelta) || 0
+    const newTotalCostLimit = Number(result.data?.totalCostLimit) || 0
+    const quotaText =
+      mergedTotalCostLimitDelta > 0 && newTotalCostLimit > 0
+        ? `\n总额度增加：$${mergedTotalCostLimitDelta.toFixed(2)}（新总额度：$${newTotalCostLimit.toFixed(2)}）`
+        : ''
+
     if (result.data?.expiresAt) {
       showToast(
-        `续费成功：${extendText}\n新的过期时间：${result.data.expiresAt}`,
+        `续费成功：${extendText}${quotaText}\n新的过期时间：${result.data.expiresAt}`,
         'success',
         '自助续费'
       )
     } else if (result.data?.activationValue && result.data?.activationUnit) {
       const activationUnitLabel = result.data.activationUnit === 'hours' ? '小时' : '天'
       showToast(
-        `续费成功：${extendText}\n激活后有效期：${result.data.activationValue}${activationUnitLabel}`,
+        `续费成功：${extendText}${quotaText}\n激活后有效期：${result.data.activationValue}${activationUnitLabel}`,
         'success',
         '自助续费'
       )
     } else {
-      showToast(`续费成功：${extendText}`, 'success', '自助续费')
+      showToast(`续费成功：${extendText}${quotaText}`, 'success', '自助续费')
     }
     renewKeyInput.value = ''
   } catch (error) {

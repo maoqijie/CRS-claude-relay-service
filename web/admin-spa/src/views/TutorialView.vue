@@ -114,6 +114,7 @@
             class="h-[60vh] w-full rounded-xl border border-gray-200 bg-white/80 p-4 font-mono text-sm text-gray-800 shadow-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/20"
             placeholder="在这里用 Markdown 编写教程（支持粘贴图片）"
             @paste="handlePaste"
+            @scroll="handleEditorScroll"
           />
 
           <div class="mt-3 text-xs text-gray-500 dark:text-gray-400">
@@ -124,7 +125,9 @@
         <section class="rounded-2xl border border-white/10 bg-white/10 p-4 dark:bg-black/20">
           <div class="mb-3 text-sm font-semibold text-gray-800 dark:text-gray-200">实时预览</div>
           <div
-            class="tutorial-preview prose max-w-none rounded-xl bg-white/70 p-4 text-gray-800 dark:bg-gray-900/40 dark:text-gray-100"
+            ref="previewRef"
+            class="tutorial-preview prose h-[60vh] max-w-none overflow-y-auto rounded-xl bg-white/70 p-4 text-gray-800 dark:bg-gray-900/40 dark:text-gray-100"
+            @scroll="handlePreviewScroll"
             v-html="renderedHtml"
           />
         </section>
@@ -210,6 +213,7 @@ const saving = ref(false)
 const uploading = ref(false)
 
 const editorRef = ref(null)
+const previewRef = ref(null)
 const fileInputRef = ref(null)
 const legacyContainerRef = ref(null)
 
@@ -421,6 +425,53 @@ const insertAtCursor = (text) => {
     textarea.setSelectionRange(pos, pos)
   })
 }
+
+let scrollSyncingBy = null
+let clearScrollSyncRaf = 0
+
+const getScrollProgress = (element) => {
+  const maxScroll = element.scrollHeight - element.clientHeight
+  if (!Number.isFinite(maxScroll) || maxScroll <= 0) return 0
+  return element.scrollTop / maxScroll
+}
+
+const applyScrollProgress = (element, progress) => {
+  const maxScroll = element.scrollHeight - element.clientHeight
+  if (!Number.isFinite(maxScroll) || maxScroll <= 0) {
+    element.scrollTop = 0
+    return
+  }
+  element.scrollTop = progress * maxScroll
+}
+
+const syncScrollFrom = (source) => {
+  if (scrollSyncingBy && source !== scrollSyncingBy) {
+    return
+  }
+
+  const editorEl = editorRef.value
+  const previewEl = previewRef.value
+  if (!editorEl || !previewEl) return
+
+  const fromEl = source === 'preview' ? previewEl : editorEl
+  const toEl = source === 'preview' ? editorEl : previewEl
+
+  const progress = getScrollProgress(fromEl)
+
+  scrollSyncingBy = source
+  applyScrollProgress(toEl, progress)
+
+  if (clearScrollSyncRaf) {
+    cancelAnimationFrame(clearScrollSyncRaf)
+  }
+  clearScrollSyncRaf = requestAnimationFrame(() => {
+    scrollSyncingBy = null
+    clearScrollSyncRaf = 0
+  })
+}
+
+const handleEditorScroll = () => syncScrollFrom('editor')
+const handlePreviewScroll = () => syncScrollFrom('preview')
 
 const toSizeValue = (raw) => {
   const value = String(raw || '').trim()

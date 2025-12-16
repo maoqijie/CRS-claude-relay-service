@@ -171,6 +171,20 @@ const hasValidPlanForFuelPack = (keyData) => {
   return dailyCostLimit > 0 || totalCostLimit > 0 || rateLimitCost > 0
 }
 
+const isTotalCostLimitPlan = (keyData) => {
+  const dailyCostLimit = Number.parseFloat(keyData?.dailyCostLimit || '0') || 0
+  const totalCostLimit = Number.parseFloat(keyData?.totalCostLimit || '0') || 0
+  return dailyCostLimit <= 0 && totalCostLimit > 0
+}
+
+const formatCostLimitValue = (value) => {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) {
+    return '0'
+  }
+  return String(Number(num.toFixed(6)))
+}
+
 const isPlanExpiredForFuelPack = (keyData) => {
   const expirationMode = keyData?.expirationMode || 'fixed'
   const isActivated = keyData?.isActivated === 'true' || keyData?.isActivated === true
@@ -328,7 +342,10 @@ router.post('/api/merge-renewal', async (req, res) => {
 
     const targetPerm = normalizeKeyPermissionsForCompare(targetKeyData)
     const renewPerm = normalizeKeyPermissionsForCompare(renewKeyData)
-    const mismatchFields = diffPermissionFields(targetPerm, renewPerm)
+    let mismatchFields = diffPermissionFields(targetPerm, renewPerm)
+    if (isTotalCostLimitPlan(targetKeyData) && isTotalCostLimitPlan(renewKeyData)) {
+      mismatchFields = mismatchFields.filter((field) => field !== 'totalCostLimit')
+    }
     if (mismatchFields.length > 0) {
       return res.status(400).json({
         success: false,
@@ -423,6 +440,19 @@ router.post('/api/merge-renewal', async (req, res) => {
         let newExpiresAt = ''
         let newActivationValue = 0
         let newActivationUnit = 'days'
+        let newTotalCostLimit = ''
+        let mergedTotalCostLimitDelta = 0
+
+        const shouldMergeTotalCostLimit =
+          isTotalCostLimitPlan(freshTarget) && isTotalCostLimitPlan(freshRenew)
+        if (shouldMergeTotalCostLimit) {
+          const targetTotalCostLimit = Number.parseFloat(freshTarget.totalCostLimit || '0') || 0
+          const renewTotalCostLimit = Number.parseFloat(freshRenew.totalCostLimit || '0') || 0
+          if (targetTotalCostLimit > 0 && renewTotalCostLimit > 0) {
+            newTotalCostLimit = formatCostLimitValue(targetTotalCostLimit + renewTotalCostLimit)
+            mergedTotalCostLimitDelta = renewTotalCostLimit
+          }
+        }
 
         if (Number.isFinite(freshTargetExpiresAtMs)) {
           const baseMs = Math.max(Date.now(), freshTargetExpiresAtMs)
@@ -444,15 +474,17 @@ router.post('/api/merge-renewal', async (req, res) => {
         }
 
         const tx = client.multi()
-        if (newExpiresAt) {
-          tx.hset(targetKey, { expiresAt: newExpiresAt, updatedAt: nowIso })
-        } else {
-          tx.hset(targetKey, {
-            activationDays: String(newActivationValue),
-            activationUnit: newActivationUnit,
-            updatedAt: nowIso
-          })
+        const targetUpdates = newExpiresAt
+          ? { expiresAt: newExpiresAt, updatedAt: nowIso }
+          : {
+              activationDays: String(newActivationValue),
+              activationUnit: newActivationUnit,
+              updatedAt: nowIso
+            }
+        if (newTotalCostLimit) {
+          targetUpdates.totalCostLimit = newTotalCostLimit
         }
+        tx.hset(targetKey, targetUpdates)
         tx.expire(targetKey, 86400 * 365)
         tx.hset(renewKeyHash, {
           isDeleted: 'true',
@@ -485,6 +517,9 @@ router.post('/api/merge-renewal', async (req, res) => {
           } else {
             targetUpdated.activationDays = String(newActivationValue)
             targetUpdated.activationUnit = newActivationUnit
+          }
+          if (newTotalCostLimit) {
+            targetUpdated.totalCostLimit = newTotalCostLimit
           }
           targetUpdated.updatedAt = nowIso
 
@@ -545,6 +580,12 @@ router.post('/api/merge-renewal', async (req, res) => {
                 }),
             extendValue: activationPeriod,
             extendUnit: activationUnit,
+            ...(newTotalCostLimit
+              ? {
+                  totalCostLimit: Number.parseFloat(newTotalCostLimit) || 0,
+                  mergedTotalCostLimitDelta
+                }
+              : {}),
             renewKeyId: renewKeyData.id
           }
         })
