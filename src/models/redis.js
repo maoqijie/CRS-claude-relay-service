@@ -212,6 +212,28 @@ class RedisClient {
     }
   }
 
+  async updateApiKeyFields(keyId, updates) {
+    if (!keyId || !updates || typeof updates !== 'object') {
+      return false
+    }
+
+    const key = `apikey:${keyId}`
+    const client = this.getClientSafe()
+
+    await client.hset(key, updates)
+    await client.expire(key, 86400 * 365) // 1年过期（延长活跃Key TTL）
+
+    if (config.postgres?.enabled) {
+      try {
+        await postgresStore.patchApiKeyById(keyId, updates)
+      } catch (error) {
+        logger.warn(`⚠️ Failed to patch API key into PostgreSQL: ${error.message}`)
+      }
+    }
+
+    return true
+  }
+
   async getApiKey(keyId) {
     const client = this.getClientSafe()
     const key = `apikey:${keyId}`

@@ -250,3 +250,6 @@ web/admin-spa/dist/
 
 # Agent instructions (local only)
 AGENTS.md
+负载均衡.md
+数据库重构方案.md
+数据库重构.md

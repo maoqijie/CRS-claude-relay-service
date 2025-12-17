@@ -1207,8 +1207,7 @@ class ApiKeyService {
 
       if (keyData && Object.keys(keyData).length > 0) {
         // 更新最后使用时间
-        keyData.lastUsedAt = new Date().toISOString()
-        await redis.setApiKey(keyId, keyData)
+        await redis.updateApiKeyFields(keyId, { lastUsedAt: new Date().toISOString() })
 
         // 记录账户级别的使用统计（只统计实际处理请求的账户）
         if (accountId) {
@@ -1447,8 +1446,7 @@ class ApiKeyService {
 
       if (keyData && Object.keys(keyData).length > 0) {
         // 更新最后使用时间
-        keyData.lastUsedAt = new Date().toISOString()
-        await redis.setApiKey(keyId, keyData)
+        await redis.updateApiKeyFields(keyId, { lastUsedAt: new Date().toISOString() })
 
         // 记录账户级别的使用统计（只统计实际处理请求的账户）
         if (accountId) {

@@ -106,6 +106,22 @@ async function upsertApiKey(keyId, hashedKey, data) {
   return Boolean(result)
 }
 
+async function patchApiKeyById(keyId, partialData) {
+  if (!keyId || !partialData || typeof partialData !== 'object') {
+    return false
+  }
+
+  const updatedAt = toTimestamp(partialData.updatedAt)
+  const sql = `
+    UPDATE api_keys
+    SET data = data || $2::jsonb,
+        updated_at = $3::timestamptz
+    WHERE id = $1::uuid
+  `
+  const result = await safeQuery(sql, [keyId, partialData, updatedAt])
+  return Boolean(result && result.rowCount > 0)
+}
+
 async function getApiKeyById(keyId) {
   if (!keyId) {
     return null
@@ -364,6 +380,7 @@ async function deleteUser(userId) {
 module.exports = {
   ensureSchema,
   upsertApiKey,
+  patchApiKeyById,
   getApiKeyById,
   getApiKeyByHashedKey,
   listApiKeyIds,
