@@ -2,6 +2,7 @@ const Redis = require('ioredis')
 const config = require('../../config/config')
 const logger = require('../utils/logger')
 const postgresStore = require('./postgresStore')
+const goRedisProxy = require('./goRedisProxy')
 
 // 时区辅助函数
 // 注意：这个函数的目的是获取某个时间点在目标时区的"本地"表示
@@ -2394,17 +2395,46 @@ class RedisClient {
 
   // 🔐 会话管理（用于管理员登录等）
   async setSession(sessionId, sessionData, ttl = 86400) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        await goRedisProxy.setSession(sessionId, sessionData, ttl)
+        return
+      } catch (error) {
+        logger.warn(`⚠️ Go service setSession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
     const key = `session:${sessionId}`
     await this.client.hset(key, sessionData)
     await this.client.expire(key, ttl)
   }
 
   async getSession(sessionId) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        return await goRedisProxy.getSession(sessionId)
+      } catch (error) {
+        logger.warn(`⚠️ Go service getSession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
     const key = `session:${sessionId}`
     return await this.client.hgetall(key)
   }
 
   async deleteSession(sessionId) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        await goRedisProxy.deleteSession(sessionId)
+        return 1
+      } catch (error) {
+        logger.warn(`⚠️ Go service deleteSession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
     const key = `session:${sessionId}`
     return await this.client.del(key)
   }
@@ -2430,9 +2460,6 @@ class RedisClient {
 
   // 🔗 OAuth会话管理
   async setOAuthSession(sessionId, sessionData, ttl = 600) {
-    // 10分钟过期
-    const key = `oauth:${sessionId}`
-
     // 序列化复杂对象，特别是 proxy 配置
     const serializedData = {}
     for (const [dataKey, value] of Object.entries(sessionData)) {
@@ -2443,16 +2470,42 @@ class RedisClient {
       }
     }
 
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        await goRedisProxy.setOAuthSession(sessionId, serializedData)
+        return
+      } catch (error) {
+        logger.warn(`⚠️ Go service setOAuthSession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
+    // 10分钟过期
+    const key = `oauth:${sessionId}`
     await this.client.hset(key, serializedData)
     await this.client.expire(key, ttl)
   }
 
   async getOAuthSession(sessionId) {
-    const key = `oauth:${sessionId}`
-    const data = await this.client.hgetall(key)
+    let data = null
+
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        data = await goRedisProxy.getOAuthSession(sessionId)
+      } catch (error) {
+        logger.warn(`⚠️ Go service getOAuthSession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
+    // 回退到直接 Redis
+    if (!data) {
+      const key = `oauth:${sessionId}`
+      data = await this.client.hgetall(key)
+    }
 
     // 反序列化 proxy 字段
-    if (data.proxy) {
+    if (data && data.proxy) {
       try {
         data.proxy = JSON.parse(data.proxy)
       } catch (error) {
@@ -2465,6 +2518,16 @@ class RedisClient {
   }
 
   async deleteOAuthSession(sessionId) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        await goRedisProxy.deleteOAuthSession(sessionId)
+        return 1
+      } catch (error) {
+        logger.warn(`⚠️ Go service deleteOAuthSession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
     const key = `oauth:${sessionId}`
     return await this.client.del(key)
   }
@@ -2743,11 +2806,32 @@ class RedisClient {
     const appConfig = require('../../config/config')
     // 从配置读取TTL（小时），转换为秒，默认1小时
     const defaultTTL = ttl !== null ? ttl : (appConfig.session?.stickyTtlHours || 1) * 60 * 60
+
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        await goRedisProxy.setStickySession(sessionHash, accountId, 'unknown', defaultTTL)
+        return
+      } catch (error) {
+        logger.warn(`⚠️ Go service setStickySession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
     const key = `sticky_session:${sessionHash}`
     await this.client.set(key, accountId, 'EX', defaultTTL)
   }
 
   async getSessionAccountMapping(sessionHash) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        const result = await goRedisProxy.getStickySession(sessionHash)
+        return result?.accountId || null
+      } catch (error) {
+        logger.warn(`⚠️ Go service getStickySession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
     const key = `sticky_session:${sessionHash}`
     return await this.client.get(key)
   }
@@ -2808,6 +2892,16 @@ class RedisClient {
   }
 
   async deleteSessionAccountMapping(sessionHash) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        await goRedisProxy.deleteStickySession(sessionHash)
+        return 1
+      } catch (error) {
+        logger.warn(`⚠️ Go service deleteStickySession failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
     const key = `sticky_session:${sessionHash}`
     return await this.client.del(key)
   }
@@ -2913,6 +3007,22 @@ class RedisClient {
       throw new Error('Request ID is required for concurrency tracking')
     }
 
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        const { leaseSeconds: defaultLeaseSeconds } = this._getConcurrencyConfig()
+        const lease = leaseSeconds || defaultLeaseSeconds
+        const count = await goRedisProxy.incrConcurrency(apiKeyId, requestId, lease)
+        logger.database(
+          `🔢 [Go] Incremented concurrency for key ${apiKeyId}: ${count} (request ${requestId})`
+        )
+        return count
+      } catch (error) {
+        logger.warn(`⚠️ Go service incrConcurrency failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
+    // 回退到直接 Redis 操作
     try {
       const { leaseSeconds: defaultLeaseSeconds, cleanupGraceSeconds } =
         this._getConcurrencyConfig()
@@ -3001,6 +3111,20 @@ class RedisClient {
 
   // 减少并发计数
   async decrConcurrency(apiKeyId, requestId) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        const count = await goRedisProxy.decrConcurrency(apiKeyId, requestId)
+        logger.database(
+          `🔢 [Go] Decremented concurrency for key ${apiKeyId}: ${count} (request ${requestId || 'n/a'})`
+        )
+        return count
+      } catch (error) {
+        logger.warn(`⚠️ Go service decrConcurrency failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
+    // 回退到直接 Redis 操作
     try {
       const key = `concurrency:${apiKeyId}`
       const now = Date.now()
@@ -3038,6 +3162,16 @@ class RedisClient {
 
   // 获取当前并发数
   async getConcurrency(apiKeyId) {
+    // 优先使用 Go 服务
+    if (await goRedisProxy.isAvailable()) {
+      try {
+        return await goRedisProxy.getConcurrency(apiKeyId)
+      } catch (error) {
+        logger.warn(`⚠️ Go service getConcurrency failed, falling back to Redis: ${error.message}`)
+      }
+    }
+
+    // 回退到直接 Redis 操作
     try {
       const key = `concurrency:${apiKeyId}`
       const now = Date.now()
@@ -3667,6 +3801,16 @@ const redisClient = new RedisClient()
 
 // 分布式锁相关方法
 redisClient.setAccountLock = async function (lockKey, lockValue, ttlMs) {
+  // 优先使用 Go 服务
+  if (await goRedisProxy.isAvailable()) {
+    try {
+      const ttlSeconds = Math.ceil(ttlMs / 1000)
+      return await goRedisProxy.setAccountLock(lockKey, lockValue, ttlSeconds)
+    } catch (error) {
+      logger.warn(`⚠️ Go service setAccountLock failed, falling back to Redis: ${error.message}`)
+    }
+  }
+
   try {
     // 使用SET NX PX实现原子性的锁获取
     // ioredis语法: set(key, value, 'PX', milliseconds, 'NX')
@@ -3679,6 +3823,15 @@ redisClient.setAccountLock = async function (lockKey, lockValue, ttlMs) {
 }
 
 redisClient.releaseAccountLock = async function (lockKey, lockValue) {
+  // 优先使用 Go 服务
+  if (await goRedisProxy.isAvailable()) {
+    try {
+      return await goRedisProxy.releaseAccountLock(lockKey, lockValue)
+    } catch (error) {
+      logger.warn(`⚠️ Go service releaseAccountLock failed, falling back to Redis: ${error.message}`)
+    }
+  }
+
   try {
     // 使用Lua脚本确保只有持有锁的进程才能释放锁
     const script = `
@@ -3717,6 +3870,15 @@ redisClient.getWeekStringInTimezone = getWeekStringInTimezone
  *   - waitMs: 需要等待的毫秒数（-1表示被占用需等待，>=0表示需要延迟的毫秒数）
  */
 redisClient.acquireUserMessageLock = async function (accountId, requestId, lockTtlMs, delayMs) {
+  // 优先使用 Go 服务
+  if (await goRedisProxy.isAvailable()) {
+    try {
+      return await goRedisProxy.acquireUserMessageLock(accountId, requestId, lockTtlMs, delayMs)
+    } catch (error) {
+      logger.warn(`⚠️ Go service acquireUserMessageLock failed, falling back to Redis: ${error.message}`)
+    }
+  }
+
   const lockKey = `user_msg_queue_lock:${accountId}`
   const lastTimeKey = `user_msg_queue_last:${accountId}`
 
@@ -3780,6 +3942,15 @@ redisClient.acquireUserMessageLock = async function (accountId, requestId, lockT
  * @returns {Promise<boolean>} 是否成功释放
  */
 redisClient.releaseUserMessageLock = async function (accountId, requestId) {
+  // 优先使用 Go 服务
+  if (await goRedisProxy.isAvailable()) {
+    try {
+      return await goRedisProxy.releaseUserMessageLock(accountId, requestId)
+    } catch (error) {
+      logger.warn(`⚠️ Go service releaseUserMessageLock failed, falling back to Redis: ${error.message}`)
+    }
+  }
+
   const lockKey = `user_msg_queue_lock:${accountId}`
   const lastTimeKey = `user_msg_queue_last:${accountId}`
 
@@ -3818,6 +3989,15 @@ redisClient.releaseUserMessageLock = async function (accountId, requestId) {
  * @returns {Promise<boolean>} 是否成功释放
  */
 redisClient.forceReleaseUserMessageLock = async function (accountId) {
+  // 优先使用 Go 服务
+  if (await goRedisProxy.isAvailable()) {
+    try {
+      return await goRedisProxy.forceReleaseUserMessageLock(accountId)
+    } catch (error) {
+      logger.warn(`⚠️ Go service forceReleaseUserMessageLock failed, falling back to Redis: ${error.message}`)
+    }
+  }
+
   const lockKey = `user_msg_queue_lock:${accountId}`
 
   try {

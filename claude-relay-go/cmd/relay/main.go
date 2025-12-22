@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/catstream/claude-relay-go/internal/config"
+	"github.com/catstream/claude-relay-go/internal/handlers"
 	"github.com/catstream/claude-relay-go/internal/middleware"
 	"github.com/catstream/claude-relay-go/internal/pkg/logger"
 	"github.com/catstream/claude-relay-go/internal/storage/redis"
@@ -19,17 +20,17 @@ import (
 )
 
 const (
-	version = "0.1.0"
+	version = "0.2.0"
 
 	// Redis 操作超时常量
-	healthCheckTimeout  = 3 * time.Second  // 健康检查超时（快速响应）
-	redisQueryTimeout   = 5 * time.Second  // 简单查询超时
-	redisScanTimeout    = 10 * time.Second // SCAN 操作超时（可能遍历大量数据）
-	shutdownTimeout     = 30 * time.Second // 优雅关闭超时
-	readTimeout         = 30 * time.Second // HTTP 读取超时
-	writeTimeout        = 600 * time.Second // HTTP 写入超时（流式响应需要较长时间）
-	idleTimeout         = 120 * time.Second // HTTP 空闲超时
-	redisScanBatchSize  = 1000              // Redis SCAN 批次大小
+	healthCheckTimeout = 3 * time.Second   // 健康检查超时（快速响应）
+	redisQueryTimeout  = 5 * time.Second   // 简单查询超时
+	redisScanTimeout   = 10 * time.Second  // SCAN 操作超时（可能遍历大量数据）
+	shutdownTimeout    = 30 * time.Second  // 优雅关闭超时
+	readTimeout        = 30 * time.Second  // HTTP 读取超时
+	writeTimeout       = 600 * time.Second // HTTP 写入超时（流式响应需要较长时间）
+	idleTimeout        = 120 * time.Second // HTTP 空闲超时
+	redisScanBatchSize = 1000              // Redis SCAN 批次大小
 )
 
 func main() {
@@ -74,6 +75,145 @@ func main() {
 
 	// 版本信息
 	router.GET("/version", versionHandler())
+
+	// 初始化 handlers
+	apiKeyHandler := handlers.NewAPIKeyHandler(redisClient)
+	concurrencyHandler := handlers.NewConcurrencyHandler(redisClient)
+	sessionHandler := handlers.NewSessionHandler(redisClient)
+	accountHandler := handlers.NewAccountHandler(redisClient)
+	lockHandler := handlers.NewLockHandler(redisClient)
+	genericHandler := handlers.NewGenericHandler(redisClient)
+
+	// Redis 代理 API（供 Node.js 调用）
+	redisAPI := router.Group("/redis")
+	{
+		// API Key 操作
+		apikeys := redisAPI.Group("/apikeys")
+		{
+			apikeys.GET("", apiKeyHandler.GetAllAPIKeys)
+			apikeys.GET("/paginated", apiKeyHandler.GetAPIKeysPaginated)
+			apikeys.GET("/stats", apiKeyHandler.GetAPIKeyStats)
+			apikeys.GET("/:id", apiKeyHandler.GetAPIKey)
+			apikeys.GET("/hash/:hash", apiKeyHandler.GetAPIKeyByHash)
+			apikeys.POST("", apiKeyHandler.SetAPIKey)
+			apikeys.PUT("/:id", apiKeyHandler.UpdateAPIKeyFields)
+			apikeys.DELETE("/:id", apiKeyHandler.DeleteAPIKey)
+			apikeys.DELETE("/:id/hard", apiKeyHandler.HardDeleteAPIKey)
+			// 成本和使用统计
+			apikeys.POST("/:id/cost/daily", apiKeyHandler.IncrementDailyCost)
+			apikeys.GET("/:id/cost/daily", apiKeyHandler.GetDailyCost)
+			apikeys.GET("/:id/cost/stats", apiKeyHandler.GetCostStats)
+			apikeys.POST("/usage", apiKeyHandler.IncrementTokenUsage)
+			apikeys.GET("/:id/usage", apiKeyHandler.GetUsageStats)
+		}
+
+		// 并发控制
+		concurrency := redisAPI.Group("/concurrency")
+		{
+			concurrency.POST("/incr", concurrencyHandler.IncrConcurrency)
+			concurrency.POST("/decr", concurrencyHandler.DecrConcurrency)
+			concurrency.GET("/:apiKeyId", concurrencyHandler.GetConcurrency)
+			concurrency.GET("/:apiKeyId/status", concurrencyHandler.GetConcurrencyStatus)
+			concurrency.GET("/status/all", concurrencyHandler.GetAllConcurrencyStatus)
+			concurrency.POST("/lease/refresh", concurrencyHandler.RefreshConcurrencyLease)
+			concurrency.POST("/cleanup", concurrencyHandler.CleanupExpiredConcurrency)
+			concurrency.DELETE("/:apiKeyId/force", concurrencyHandler.ForceClearConcurrency)
+			concurrency.DELETE("/force/all", concurrencyHandler.ForceClearAllConcurrency)
+			// Console 账户并发
+			concurrency.POST("/console/incr", concurrencyHandler.IncrConsoleAccountConcurrency)
+			concurrency.POST("/console/decr", concurrencyHandler.DecrConsoleAccountConcurrency)
+			concurrency.GET("/console/:accountId", concurrencyHandler.GetConsoleAccountConcurrency)
+			// 并发队列
+			concurrency.POST("/queue/incr", concurrencyHandler.IncrConcurrencyQueue)
+			concurrency.POST("/queue/decr", concurrencyHandler.DecrConcurrencyQueue)
+			concurrency.GET("/queue/:apiKeyId/count", concurrencyHandler.GetConcurrencyQueueCount)
+			concurrency.DELETE("/queue/:apiKeyId", concurrencyHandler.ClearConcurrencyQueue)
+			concurrency.DELETE("/queue/all", concurrencyHandler.ClearAllConcurrencyQueues)
+			concurrency.GET("/queue/:apiKeyId/stats", concurrencyHandler.GetQueueStats)
+			concurrency.GET("/queue/global/stats", concurrencyHandler.GetGlobalQueueStats)
+			concurrency.GET("/queue/health", concurrencyHandler.CheckQueueHealth)
+			concurrency.POST("/queue/wait-time", concurrencyHandler.RecordWaitTime)
+		}
+
+		// 会话管理
+		sessions := redisAPI.Group("/sessions")
+		{
+			sessions.POST("", sessionHandler.SetSession)
+			sessions.GET("/:token", sessionHandler.GetSession)
+			sessions.DELETE("/:token", sessionHandler.DeleteSession)
+			sessions.POST("/refresh", sessionHandler.RefreshSession)
+			// OAuth 会话
+			sessions.POST("/oauth", sessionHandler.SetOAuthSession)
+			sessions.GET("/oauth/:state", sessionHandler.GetOAuthSession)
+			sessions.POST("/oauth/:state/consume", sessionHandler.ConsumeOAuthSession)
+			sessions.DELETE("/oauth/:state", sessionHandler.DeleteOAuthSession)
+			// 粘性会话
+			sessions.POST("/sticky", sessionHandler.SetStickySession)
+			sessions.GET("/sticky/:sessionHash", sessionHandler.GetStickySession)
+			sessions.POST("/sticky/get-or-create", sessionHandler.GetOrCreateStickySession)
+			sessions.DELETE("/sticky/:sessionHash", sessionHandler.DeleteStickySession)
+			sessions.POST("/sticky/renew", sessionHandler.RenewStickySession)
+			sessions.GET("/sticky/all", sessionHandler.GetAllStickySessions)
+			sessions.POST("/sticky/cleanup", sessionHandler.CleanupExpiredStickySessions)
+		}
+
+		// 账户管理
+		accounts := redisAPI.Group("/accounts")
+		{
+			accounts.GET("/:type", accountHandler.GetAllAccounts)
+			accounts.GET("/:type/active", accountHandler.GetActiveAccounts)
+			accounts.GET("/:type/:id", accountHandler.GetAccount)
+			accounts.GET("/:type/:id/raw", accountHandler.GetAccountRaw)
+			accounts.POST("/:type/:id", accountHandler.SetAccount)
+			accounts.DELETE("/:type/:id", accountHandler.DeleteAccount)
+			accounts.PUT("/:type/:id/status", accountHandler.UpdateAccountStatus)
+			accounts.POST("/:type/:id/error", accountHandler.SetAccountError)
+			accounts.DELETE("/:type/:id/error", accountHandler.ClearAccountError)
+			accounts.POST("/:type/:id/overloaded", accountHandler.SetAccountOverloaded)
+			accounts.DELETE("/:type/:id/overloaded", accountHandler.ClearAccountOverloaded)
+			// 账户锁
+			accounts.POST("/lock", accountHandler.SetAccountLock)
+			accounts.POST("/lock/release", accountHandler.ReleaseAccountLock)
+			// 账户使用量 (不带 :type 的路由需要单独处理)
+			accounts.POST("/usage", accountHandler.IncrementAccountUsage)
+		}
+
+		// 账户成本 (单独路由组避免与 /:type/:id 冲突)
+		accountCost := redisAPI.Group("/account-cost")
+		{
+			accountCost.GET("/:id", accountHandler.GetAccountCost)
+			accountCost.GET("/:id/daily", accountHandler.GetAccountDailyCost)
+			accountCost.POST("/:id", accountHandler.IncrementAccountCost)
+			accountCost.GET("/:id/usage/window", accountHandler.GetSessionWindowUsage)
+		}
+
+		// 锁管理
+		locks := redisAPI.Group("/locks")
+		{
+			locks.POST("/acquire", lockHandler.AcquireLock)
+			locks.POST("/release", lockHandler.ReleaseLock)
+			locks.POST("/extend", lockHandler.ExtendLock)
+			// 用户消息锁
+			locks.POST("/user-message/acquire", lockHandler.AcquireUserMessageLock)
+			locks.POST("/user-message/release", lockHandler.ReleaseUserMessageLock)
+			locks.DELETE("/user-message/:accountId/force", lockHandler.ForceReleaseUserMessageLock)
+			locks.GET("/user-message/:accountId/stats", lockHandler.GetUserMessageQueueStats)
+		}
+
+		// 通用 Redis 操作
+		generic := redisAPI.Group("/generic")
+		{
+			generic.GET("/get/*key", genericHandler.Get)
+			generic.POST("/set", genericHandler.Set)
+			generic.POST("/del", genericHandler.Del)
+			generic.GET("/scan", genericHandler.ScanKeys)
+			generic.GET("/hgetall/*key", genericHandler.HGetAll)
+			generic.POST("/hset", genericHandler.HSet)
+			generic.GET("/dbsize", genericHandler.DBSize)
+			generic.GET("/info", genericHandler.Info)
+			generic.GET("/models", genericHandler.GetAllUsedModels)
+		}
+	}
 
 	// Redis 数据读取测试（仅开发环境）
 	testRoutes := router.Group("/test")
