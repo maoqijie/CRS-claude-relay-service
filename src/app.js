@@ -322,72 +322,6 @@ class Application {
         res.redirect('/admin-next/api-stats')
       })
 
-      // 🏥 增强的健康检查端点
-      this.app.get('/health', async (req, res) => {
-        try {
-          const timer = logger.timer('health-check')
-
-          // 检查各个组件健康状态
-          const [redisHealth, loggerHealth] = await Promise.all([
-            this.checkRedisHealth(),
-            this.checkLoggerHealth()
-          ])
-          const postgresHealth = await this.checkPostgresHealth()
-
-          const memory = process.memoryUsage()
-
-          // 获取版本号：优先使用环境变量，其次VERSION文件，再次package.json，最后使用默认值
-          let version = process.env.APP_VERSION || process.env.VERSION
-          if (!version) {
-            try {
-              const versionFile = path.join(__dirname, '..', 'VERSION')
-              if (fs.existsSync(versionFile)) {
-                version = fs.readFileSync(versionFile, 'utf8').trim()
-              }
-            } catch (error) {
-              // 忽略错误，继续尝试其他方式
-            }
-          }
-          if (!version) {
-            try {
-              const { version: pkgVersion } = require('../package.json')
-              version = pkgVersion
-            } catch (error) {
-              version = '1.0.0'
-            }
-          }
-
-          const health = {
-            status: 'healthy',
-            service: 'claude-relay-service',
-            version,
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime(),
-            memory: {
-              used: `${Math.round(memory.heapUsed / 1024 / 1024)}MB`,
-              total: `${Math.round(memory.heapTotal / 1024 / 1024)}MB`,
-              external: `${Math.round(memory.external / 1024 / 1024)}MB`
-            },
-            components: {
-              redis: redisHealth,
-              postgres: postgresHealth,
-              logger: loggerHealth
-            },
-            stats: logger.getStats()
-          }
-
-          timer.end('completed')
-          res.json(health)
-        } catch (error) {
-          logger.error('❌ Health check failed:', { error: error.message, stack: error.stack })
-          res.status(503).json({
-            status: 'unhealthy',
-            error: error.message,
-            timestamp: new Date().toISOString()
-          })
-        }
-      })
-
       // 📊 指标端点
       this.app.get('/metrics', async (req, res) => {
         try {
@@ -464,72 +398,6 @@ class Application {
     }
   }
 
-  // 🔍 Redis健康检查
-  async checkRedisHealth() {
-    try {
-      const start = Date.now()
-      await redis.getClient().ping()
-      const latency = Date.now() - start
-
-      return {
-        status: 'healthy',
-        connected: redis.isConnected,
-        latency: `${latency}ms`
-      }
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        connected: false,
-        error: error.message
-      }
-    }
-  }
-
-  // 🐘 PostgreSQL 健康检查（可选）
-  async checkPostgresHealth() {
-    try {
-      if (!postgres.isEnabled()) {
-        return { status: 'disabled' }
-      }
-
-      const start = Date.now()
-      await postgres.connect()
-      if (!postgres.isConnected) {
-        return {
-          status: 'unhealthy',
-          error: 'PostgreSQL not connected'
-        }
-      }
-
-      await postgres.query('SELECT 1')
-      return {
-        status: 'healthy',
-        latency: `${Date.now() - start}ms`
-      }
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        error: error.message
-      }
-    }
-  }
-
-  // 📝 Logger健康检查
-  async checkLoggerHealth() {
-    try {
-      const health = logger.healthCheck()
-      return {
-        status: health.healthy ? 'healthy' : 'unhealthy',
-        ...health
-      }
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        error: error.message
-      }
-    }
-  }
-
   async start() {
     try {
       await this.initialize()
@@ -545,7 +413,7 @@ class Application {
           `🔗 API endpoint: http://${config.server.host}:${config.server.port}/api/v1/messages`
         )
         logger.info(`⚙️  Admin API: http://${config.server.host}:${config.server.port}/admin`)
-        logger.info(`🏥 Health check: http://${config.server.host}:${config.server.port}/health`)
+        logger.info(`🏥 Health check: http://${config.server.host}:${config.server.port}/api/health`)
         logger.info(`📊 Metrics: http://${config.server.host}:${config.server.port}/metrics`)
       })
 
