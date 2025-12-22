@@ -255,3 +255,4 @@ AGENTS.md
 数据库重构.md
 claude-relay-go/bin/claude-relay-go
 .gocache/
+claude-relay-go/claude-relay-go/bin/claude-relay-go
