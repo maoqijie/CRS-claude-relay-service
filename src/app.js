@@ -48,6 +48,75 @@ class Application {
     this.server = null
   }
 
+  // 🔒 安全启动：清理无效/伪造的管理员会话
+  // 仅处理形如 session:<64 hex> 的会话（管理员登录 token），避免误删其它业务 key
+  async cleanupInvalidSessions() {
+    try {
+      const client = redis.getClient()
+      if (!client) {
+        logger.warn('⚠️ Redis client not ready, skipping invalid session cleanup')
+        return
+      }
+
+      const pattern = 'session:*'
+      const tokenRegex = /^[0-9a-f]{64}$/
+      const batchCount = 1000
+      const maxScanned = 5000
+
+      let cursor = '0'
+      let scanned = 0
+      let cleaned = 0
+
+      do {
+        const [nextCursor, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', batchCount)
+        cursor = nextCursor
+
+        if (!Array.isArray(keys) || keys.length === 0) {
+          continue
+        }
+
+        for (const key of keys) {
+          if (scanned >= maxScanned) {
+            cursor = '0'
+            break
+          }
+
+          scanned++
+
+          if (typeof key !== 'string' || !key.startsWith('session:')) {
+            continue
+          }
+
+          const sessionId = key.slice('session:'.length)
+          if (!tokenRegex.test(sessionId)) {
+            continue
+          }
+
+          const sessionData = await redis.getSession(sessionId)
+          if (!sessionData || typeof sessionData !== 'object') {
+            await redis.deleteSession(sessionId)
+            cleaned++
+            continue
+          }
+
+          // 管理员会话必须字段：username / loginTime
+          if (!sessionData.username || !sessionData.loginTime) {
+            await redis.deleteSession(sessionId)
+            cleaned++
+          }
+        }
+      } while (cursor !== '0')
+
+      if (cleaned > 0) {
+        logger.security(`🧹 Cleaned ${cleaned} invalid admin sessions (scanned ${scanned})`)
+      } else {
+        logger.info(`✅ No invalid admin sessions found (scanned ${scanned})`)
+      }
+    } catch (error) {
+      logger.warn(`⚠️ Failed to cleanup invalid admin sessions: ${error.message}`)
+    }
+  }
+
   async initialize() {
     try {
       // 🔗 连接Redis
