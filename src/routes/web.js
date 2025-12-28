@@ -50,8 +50,10 @@ router.post('/auth/login', async (req, res) => {
             updatedAt: initData.updatedAt || null
           }
 
-          // 重新存储到Redis，不设置过期时间
-          await redis.getClient().hset('session:admin_credentials', adminData)
+          // 重新存储到Redis（通过统一的 setSession，兼容 Go Redis Proxy / 直连 Redis 两种模式）
+          // 这里使用较长 TTL，避免 admin_credentials 频繁过期导致重复加载
+          const oneYearSeconds = 365 * 24 * 60 * 60
+          await redis.setSession('admin_credentials', adminData, oneYearSeconds)
 
           logger.info('✅ Admin credentials reloaded from init.json')
         } catch (error) {

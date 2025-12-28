@@ -389,7 +389,8 @@ class Application {
         updatedAt: initData.updatedAt || null
       }
 
-      await redis.setSession('admin_credentials', adminCredentials)
+      const oneYearSeconds = 365 * 24 * 60 * 60
+      await redis.setSession('admin_credentials', adminCredentials, oneYearSeconds)
 
       logger.success('✅ Admin credentials loaded from init.json (single source of truth)')
       logger.info(`📋 Admin username: ${adminCredentials.username}`)

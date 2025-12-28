@@ -363,3 +363,97 @@ func (c *Client) GetAccountDailyCost(ctx context.Context, accountID string, date
 
 	return parseFloat64(result), nil
 }
+
+// getWeekStartDate 获取本周一的日期字符串
+func getWeekStartDate(t time.Time) string {
+	// 获取本周一
+	weekday := int(t.Weekday())
+	if weekday == 0 {
+		weekday = 7 // 周日
+	}
+	monday := t.AddDate(0, 0, -(weekday - 1))
+	return getDateStringInTimezone(monday)
+}
+
+// IncrementWeeklyOpusCost 增加 Opus 周成本
+func (c *Client) IncrementWeeklyOpusCost(ctx context.Context, keyID string, amount float64) error {
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	weekStartDate := getWeekStartDate(now)
+	weeklyOpusCostKey := fmt.Sprintf("usage:cost:weekly_opus:%s:%s", keyID, weekStartDate)
+
+	pipe := client.Pipeline()
+	pipe.IncrByFloat(ctx, weeklyOpusCostKey, amount)
+	// 设置 8 天过期，确保跨周时仍可读取
+	pipe.Expire(ctx, weeklyOpusCostKey, 8*24*time.Hour)
+
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		logger.Error("Failed to increment weekly opus cost", zap.Error(err))
+		return err
+	}
+
+	return nil
+}
+
+// GetWeeklyOpusCost 获取 Opus 周成本
+func (c *Client) GetWeeklyOpusCost(ctx context.Context, keyID string) (float64, error) {
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return 0, err
+	}
+
+	now := time.Now()
+	weekStartDate := getWeekStartDate(now)
+	weeklyOpusCostKey := fmt.Sprintf("usage:cost:weekly_opus:%s:%s", keyID, weekStartDate)
+
+	result, err := client.Get(ctx, weeklyOpusCostKey).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	return parseFloat64(result), nil
+}
+
+// GetRateLimitWindowCost 获取速率限制窗口内的费用
+func (c *Client) GetRateLimitWindowCost(ctx context.Context, keyID string) (float64, error) {
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return 0, err
+	}
+
+	costCountKey := fmt.Sprintf("rate_limit:cost:%s", keyID)
+	result, err := client.Get(ctx, costCountKey).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	return parseFloat64(result), nil
+}
+
+// IncrementRateLimitWindowCost 增加速率限制窗口内的费用
+func (c *Client) IncrementRateLimitWindowCost(ctx context.Context, keyID string, amount float64, windowMinutes int) error {
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return err
+	}
+
+	costCountKey := fmt.Sprintf("rate_limit:cost:%s", keyID)
+
+	pipe := client.Pipeline()
+	pipe.IncrByFloat(ctx, costCountKey, amount)
+	pipe.Expire(ctx, costCountKey, time.Duration(windowMinutes)*time.Minute)
+
+	_, err = pipe.Exec(ctx)
+	return err
+}

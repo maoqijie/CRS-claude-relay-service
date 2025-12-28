@@ -2416,7 +2416,9 @@ class RedisClient {
     // 优先使用 Go 服务
     if (await goRedisProxy.isAvailable()) {
       try {
-        await goRedisProxy.setSession(sessionId, sessionData, ttl)
+        // Go 服务的 Session 结构是 { token, userId, data, createdAt, expiresAt }
+        // Node 侧历史上直接存 Hash，因此这里统一把 sessionData 放到 data 字段里，保持调用方语义不变
+        await goRedisProxy.setSession(sessionId, { data: sessionData }, ttl)
         return
       } catch (error) {
         logger.warn(`⚠️ Go service setSession failed, falling back to Redis: ${error.message}`)
@@ -2424,22 +2426,57 @@ class RedisClient {
     }
 
     const key = `session:${sessionId}`
-    await this.client.hset(key, sessionData)
-    await this.client.expire(key, ttl)
+    try {
+      await this.client.hset(key, sessionData)
+      await this.client.expire(key, ttl)
+    } catch (error) {
+      // 如果之前由 Go 服务写入了字符串类型的 session key，这里会触发 WRONGTYPE
+      if (String(error?.message || '').includes('WRONGTYPE')) {
+        await this.client.del(key)
+        await this.client.hset(key, sessionData)
+        await this.client.expire(key, ttl)
+        return
+      }
+      throw error
+    }
   }
 
   async getSession(sessionId) {
     // 优先使用 Go 服务
     if (await goRedisProxy.isAvailable()) {
       try {
-        return await goRedisProxy.getSession(sessionId)
+        const session = await goRedisProxy.getSession(sessionId)
+        if (session && typeof session === 'object' && session.data && typeof session.data === 'object') {
+          return session.data
+        }
+        // 兜底：返回空对象以保持 hgetall 语义
+        return {}
       } catch (error) {
         logger.warn(`⚠️ Go service getSession failed, falling back to Redis: ${error.message}`)
       }
     }
 
     const key = `session:${sessionId}`
-    return await this.client.hgetall(key)
+    try {
+      return await this.client.hgetall(key)
+    } catch (error) {
+      // Go 服务存储为字符串 JSON，Redis 回退读取 hash 会触发 WRONGTYPE
+      if (String(error?.message || '').includes('WRONGTYPE')) {
+        const raw = await this.client.get(key)
+        if (!raw) {
+          return {}
+        }
+        try {
+          const parsed = JSON.parse(raw)
+          return parsed && typeof parsed === 'object' && parsed.data && typeof parsed.data === 'object'
+            ? parsed.data
+            : {}
+        } catch (_e) {
+          return {}
+        }
+      }
+      throw error
+    }
   }
 
   async deleteSession(sessionId) {
@@ -2488,8 +2525,10 @@ class RedisClient {
       }
     }
 
-    // 优先使用 Go 服务
-    if (await goRedisProxy.isAvailable()) {
+    // OAuth 会话当前仍以 Node.js 侧数据结构为准（包含 state/codeChallenge/proxy 等字段），
+    // Go 侧实现尚未与该结构完全对齐，因此默认不走 Go Proxy，避免授权流程异常。
+    const useGoOAuthProxy = process.env.GO_REDIS_PROXY_OAUTH_ENABLED === 'true'
+    if (useGoOAuthProxy && (await goRedisProxy.isAvailable())) {
       try {
         await goRedisProxy.setOAuthSession(sessionId, serializedData)
         return
@@ -2507,8 +2546,9 @@ class RedisClient {
   async getOAuthSession(sessionId) {
     let data = null
 
-    // 优先使用 Go 服务
-    if (await goRedisProxy.isAvailable()) {
+    // 默认不走 Go OAuth Proxy，原因同 setOAuthSession
+    const useGoOAuthProxy = process.env.GO_REDIS_PROXY_OAUTH_ENABLED === 'true'
+    if (useGoOAuthProxy && (await goRedisProxy.isAvailable())) {
       try {
         data = await goRedisProxy.getOAuthSession(sessionId)
       } catch (error) {
@@ -2536,8 +2576,9 @@ class RedisClient {
   }
 
   async deleteOAuthSession(sessionId) {
-    // 优先使用 Go 服务
-    if (await goRedisProxy.isAvailable()) {
+    // 默认不走 Go OAuth Proxy，原因同 setOAuthSession
+    const useGoOAuthProxy = process.env.GO_REDIS_PROXY_OAUTH_ENABLED === 'true'
+    if (useGoOAuthProxy && (await goRedisProxy.isAvailable())) {
       try {
         await goRedisProxy.deleteOAuthSession(sessionId)
         return 1

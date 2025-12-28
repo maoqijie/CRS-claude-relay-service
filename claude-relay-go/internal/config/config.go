@@ -11,11 +11,14 @@ import (
 
 // Config 全局配置结构
 type Config struct {
-	Server   ServerConfig
-	Redis    RedisConfig
-	Postgres PostgresConfig
-	Security SecurityConfig
-	System   SystemConfig
+	Server         ServerConfig
+	Redis          RedisConfig
+	Postgres       PostgresConfig
+	Security       SecurityConfig
+	System         SystemConfig
+	Pricing        PricingConfig
+	UserManagement UserManagementConfig
+	Web            WebConfig
 }
 
 type ServerConfig struct {
@@ -50,14 +53,38 @@ type PostgresConfig struct {
 }
 
 type SecurityConfig struct {
-	JWTSecret     string
-	APIKeyPrefix  string
-	EncryptionKey string
+	JWTSecret      string
+	APIKeyPrefix   string
+	EncryptionKey  string
+	ClaudeCodeOnly bool // 全局 Claude Code Only 限制
 }
 
 type SystemConfig struct {
 	TimezoneOffset int
 	MetricsWindow  int
+}
+
+type UserManagementConfig struct {
+	Enabled bool
+}
+
+type WebConfig struct {
+	EnableCors bool
+}
+
+type PricingConfig struct {
+	// 远程价格源配置
+	MirrorRepo     string        // GitHub 仓库，如 "Wei-Shaw/claude-relay-service"
+	MirrorBranch   string        // 分支名，如 "price-mirror"
+	MirrorBaseURL  string        // 自定义基础 URL（可选）
+	JSONFileName   string        // JSON 文件名
+	HashFileName   string        // 哈希文件名
+	JSONUrl        string        // 完整的 JSON URL（可选，覆盖自动生成）
+	HashUrl        string        // 完整的哈希 URL（可选，覆盖自动生成）
+	UpdateInterval time.Duration // 定时更新间隔（默认 24 小时）
+	HashCheckInterval time.Duration // 哈希校验间隔（默认 10 分钟）
+	DataDir        string        // 数据目录
+	FallbackFile   string        // 回退文件路径
 }
 
 // Cfg 全局配置实例
@@ -119,13 +146,21 @@ func Load() (*Config, error) {
 			MaxPool:  getEnvInt("POSTGRES_MAX_POOL_SIZE", 10),
 		},
 		Security: SecurityConfig{
-			JWTSecret:     getEnv("JWT_SECRET", ""),
-			APIKeyPrefix:  getEnv("API_KEY_PREFIX", "cr_"),
-			EncryptionKey: getEnv("ENCRYPTION_KEY", ""),
+			JWTSecret:      getEnv("JWT_SECRET", ""),
+			APIKeyPrefix:   getEnv("API_KEY_PREFIX", "cr_"),
+			EncryptionKey:  getEnv("ENCRYPTION_KEY", ""),
+			ClaudeCodeOnly: getEnvBool("CLAUDE_CODE_ONLY", false),
 		},
 		System: SystemConfig{
 			TimezoneOffset: getEnvInt("TIMEZONE_OFFSET", 8),
 			MetricsWindow:  getEnvInt("METRICS_WINDOW", 5),
+		},
+		Pricing: buildPricingConfig(),
+		UserManagement: UserManagementConfig{
+			Enabled: getEnvBool("USER_MANAGEMENT_ENABLED", false),
+		},
+		Web: WebConfig{
+			EnableCors: getEnvBool("ENABLE_CORS", false),
 		},
 	}
 
@@ -163,4 +198,49 @@ func getEnvBool(key string, defaultVal bool) bool {
 		return val == "true" || val == "1"
 	}
 	return defaultVal
+}
+
+func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		if d, err := time.ParseDuration(val); err == nil {
+			return d
+		}
+		// 尝试解析为毫秒数
+		if ms, err := strconv.Atoi(val); err == nil {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return defaultVal
+}
+
+// buildPricingConfig 构建定价配置
+func buildPricingConfig() PricingConfig {
+	repo := getEnv("PRICE_MIRROR_REPO", getEnv("GITHUB_REPOSITORY", "Wei-Shaw/claude-relay-service"))
+	branch := getEnv("PRICE_MIRROR_BRANCH", "price-mirror")
+	jsonFileName := getEnv("PRICE_MIRROR_FILENAME", "model_prices_and_context_window.json")
+	hashFileName := getEnv("PRICE_MIRROR_HASH_FILENAME", "model_prices_and_context_window.sha256")
+
+	// 构建基础 URL
+	baseURL := getEnv("PRICE_MIRROR_BASE_URL", "")
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("https://raw.githubusercontent.com/%s/%s", repo, branch)
+	}
+
+	// 构建完整 URL
+	jsonURL := getEnv("PRICE_MIRROR_JSON_URL", fmt.Sprintf("%s/%s", baseURL, jsonFileName))
+	hashURL := getEnv("PRICE_MIRROR_HASH_URL", fmt.Sprintf("%s/%s", baseURL, hashFileName))
+
+	return PricingConfig{
+		MirrorRepo:        repo,
+		MirrorBranch:      branch,
+		MirrorBaseURL:     baseURL,
+		JSONFileName:      jsonFileName,
+		HashFileName:      hashFileName,
+		JSONUrl:           jsonURL,
+		HashUrl:           hashURL,
+		UpdateInterval:    getEnvDuration("PRICE_UPDATE_INTERVAL", 24*time.Hour),
+		HashCheckInterval: getEnvDuration("PRICE_HASH_CHECK_INTERVAL", 10*time.Minute),
+		DataDir:           getEnv("PRICE_DATA_DIR", "../data"),
+		FallbackFile:      getEnv("PRICE_FALLBACK_FILE", "../resources/model-pricing/model_prices_and_context_window.json"),
+	}
 }

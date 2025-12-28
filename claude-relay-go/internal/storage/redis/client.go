@@ -254,3 +254,40 @@ func (c *Client) DBSize(ctx context.Context) (int64, error) {
 	}
 	return client.DBSize(ctx).Result()
 }
+
+// Exists 检查 key 是否存在
+func (c *Client) Exists(ctx context.Context, key string) (bool, error) {
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return false, err
+	}
+	result, err := client.Exists(ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	return result > 0, nil
+}
+
+// IncrWithExpiry 原子递增并设置过期时间
+func (c *Client) IncrWithExpiry(ctx context.Context, key string, expiry time.Duration) (int64, error) {
+	client, err := c.GetClientSafe()
+	if err != nil {
+		return 0, err
+	}
+
+	// 使用 Lua 脚本确保原子性
+	script := `
+		local count = redis.call('INCR', KEYS[1])
+		if count == 1 then
+			redis.call('PEXPIRE', KEYS[1], ARGV[1])
+		end
+		return count
+	`
+
+	result, err := client.Eval(ctx, script, []string{key}, expiry.Milliseconds()).Result()
+	if err != nil {
+		return 0, err
+	}
+
+	return result.(int64), nil
+}

@@ -54,6 +54,27 @@ type APIKey struct {
 	ConcurrentRequestQueueMaxSizeMultiplier float64 `json:"concurrentRequestQueueMaxSizeMultiplier,omitempty"`
 	ConcurrentRequestQueueTimeoutMs         int     `json:"concurrentRequestQueueTimeoutMs,omitempty"`
 
+	// 成本限制
+	DailyCostLimit      float64 `json:"dailyCostLimit,omitempty"`      // 每日成本限制（美元）
+	TotalCostLimit      float64 `json:"totalCostLimit,omitempty"`      // 总成本限制（美元）
+	WeeklyOpusCostLimit float64 `json:"weeklyOpusCostLimit,omitempty"` // Opus 周成本限制（美元）
+
+	// 速率限制（窗口费用）
+	RateLimitWindow int     `json:"rateLimitWindow,omitempty"` // 速率限制窗口（分钟）
+	RateLimitCost   float64 `json:"rateLimitCost,omitempty"`   // 窗口内费用限制（美元）
+
+	// 激活模式
+	ExpirationMode string     `json:"expirationMode,omitempty"` // 过期模式：fixed / activation
+	ActivationDays int        `json:"activationDays,omitempty"` // 激活后有效天数
+	ActivationUnit string     `json:"activationUnit,omitempty"` // 激活时间单位：days / hours
+	IsActivated    bool       `json:"isActivated,omitempty"`    // 是否已激活
+	ActivatedAt    *time.Time `json:"activatedAt,omitempty"`    // 激活时间
+
+	// FuelPack 加油包
+	FuelBalance        float64 `json:"fuelBalance,omitempty"`        // 加油包余额（美元）
+	FuelEntries        int     `json:"fuelEntries,omitempty"`        // 加油包条目数
+	FuelNextExpiresAtMs int64   `json:"fuelNextExpiresAtMs,omitempty"` // 最近过期时间（毫秒时间戳）
+
 	// 用户管理
 	UserID string   `json:"userId,omitempty"` // 关联用户 ID
 	Tags   []string `json:"tags,omitempty"`   // 标签
@@ -590,6 +611,53 @@ func apiKeyToMap(key *APIKey) map[string]interface{} {
 		m["rateLimitPerHour"] = fmt.Sprintf("%d", key.RateLimitPerHour)
 	}
 
+	// 成本限制
+	if key.DailyCostLimit > 0 {
+		m["dailyCostLimit"] = fmt.Sprintf("%f", key.DailyCostLimit)
+	}
+	if key.TotalCostLimit > 0 {
+		m["totalCostLimit"] = fmt.Sprintf("%f", key.TotalCostLimit)
+	}
+	if key.WeeklyOpusCostLimit > 0 {
+		m["weeklyOpusCostLimit"] = fmt.Sprintf("%f", key.WeeklyOpusCostLimit)
+	}
+
+	// 速率限制（窗口费用）
+	if key.RateLimitWindow > 0 {
+		m["rateLimitWindow"] = fmt.Sprintf("%d", key.RateLimitWindow)
+	}
+	if key.RateLimitCost > 0 {
+		m["rateLimitCost"] = fmt.Sprintf("%f", key.RateLimitCost)
+	}
+
+	// 激活模式
+	if key.ExpirationMode != "" {
+		m["expirationMode"] = key.ExpirationMode
+	}
+	if key.ActivationDays > 0 {
+		m["activationDays"] = fmt.Sprintf("%d", key.ActivationDays)
+	}
+	if key.ActivationUnit != "" {
+		m["activationUnit"] = key.ActivationUnit
+	}
+	if key.IsActivated {
+		m["isActivated"] = "true"
+	}
+	if key.ActivatedAt != nil {
+		m["activatedAt"] = key.ActivatedAt.Format(time.RFC3339)
+	}
+
+	// FuelPack 加油包
+	if key.FuelBalance > 0 {
+		m["fuelBalance"] = fmt.Sprintf("%f", key.FuelBalance)
+	}
+	if key.FuelEntries > 0 {
+		m["fuelEntries"] = fmt.Sprintf("%d", key.FuelEntries)
+	}
+	if key.FuelNextExpiresAtMs > 0 {
+		m["fuelNextExpiresAtMs"] = fmt.Sprintf("%d", key.FuelNextExpiresAtMs)
+	}
+
 	// JSON 数组字段
 	if len(key.Permissions) > 0 {
 		data, _ := json.Marshal(key.Permissions)
@@ -628,12 +696,14 @@ func apiKeyToMap(key *APIKey) map[string]interface{} {
 // mapToAPIKey 将 map 转换为 APIKey
 func mapToAPIKey(data map[string]string) *APIKey {
 	key := &APIKey{
-		ID:          data["id"],
-		Name:        data["name"],
-		HashedKey:   data["hashedKey"],
-		APIKey:      data["apiKey"],
-		Description: data["description"],
-		UserID:      data["userId"],
+		ID:             data["id"],
+		Name:           data["name"],
+		HashedKey:      data["hashedKey"],
+		APIKey:         data["apiKey"],
+		Description:    data["description"],
+		UserID:         data["userId"],
+		ExpirationMode: data["expirationMode"],
+		ActivationUnit: data["activationUnit"],
 	}
 
 	// 数值字段
@@ -646,10 +716,28 @@ func mapToAPIKey(data map[string]string) *APIKey {
 	key.ConcurrentRequestQueueTimeoutMs = int(parseInt64(data["concurrentRequestQueueTimeoutMs"]))
 	key.ConcurrentRequestQueueMaxSizeMultiplier = parseFloat64(data["concurrentRequestQueueMaxSizeMultiplier"])
 
+	// 成本限制
+	key.DailyCostLimit = parseFloat64(data["dailyCostLimit"])
+	key.TotalCostLimit = parseFloat64(data["totalCostLimit"])
+	key.WeeklyOpusCostLimit = parseFloat64(data["weeklyOpusCostLimit"])
+
+	// 速率限制（窗口费用）
+	key.RateLimitWindow = int(parseInt64(data["rateLimitWindow"]))
+	key.RateLimitCost = parseFloat64(data["rateLimitCost"])
+
+	// 激活模式
+	key.ActivationDays = int(parseInt64(data["activationDays"]))
+
+	// FuelPack 加油包
+	key.FuelBalance = parseFloat64(data["fuelBalance"])
+	key.FuelEntries = int(parseInt64(data["fuelEntries"]))
+	key.FuelNextExpiresAtMs = parseInt64(data["fuelNextExpiresAtMs"])
+
 	// 布尔字段
 	key.IsActive = data["isActive"] == "true" || data["isActive"] == "1"
 	key.IsDeleted = data["isDeleted"] == "true" || data["isDeleted"] == "1"
 	key.ConcurrentRequestQueueEnabled = data["concurrentRequestQueueEnabled"] == "true" || data["concurrentRequestQueueEnabled"] == "1"
+	key.IsActivated = data["isActivated"] == "true" || data["isActivated"] == "1"
 
 	// 时间字段
 	if t, err := time.Parse(time.RFC3339, data["createdAt"]); err == nil {
@@ -663,6 +751,11 @@ func mapToAPIKey(data map[string]string) *APIKey {
 	if data["lastUsedAt"] != "" {
 		if t, err := time.Parse(time.RFC3339, data["lastUsedAt"]); err == nil {
 			key.LastUsedAt = &t
+		}
+	}
+	if data["activatedAt"] != "" {
+		if t, err := time.Parse(time.RFC3339, data["activatedAt"]); err == nil {
+			key.ActivatedAt = &t
 		}
 	}
 
