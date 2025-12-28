@@ -1084,7 +1084,8 @@ class RedisClient {
     model = 'unknown',
     ephemeral5mTokens = 0, // 新增：5分钟缓存 tokens
     ephemeral1hTokens = 0, // 新增：1小时缓存 tokens
-    isLongContextRequest = false // 新增：是否为 1M 上下文请求（超过200k）
+    isLongContextRequest = false, // 新增：是否为 1M 上下文请求（超过200k）
+    actualModel = null // 新增：上游实际使用的模型（用于管理员统计）
   ) {
     const key = `usage:${keyId}`
     const now = new Date()
@@ -1253,6 +1254,69 @@ class RedisClient {
     pipeline.hincrby(systemMinuteKey, 'outputTokens', finalOutputTokens)
     pipeline.hincrby(systemMinuteKey, 'cacheCreateTokens', finalCacheCreateTokens)
     pipeline.hincrby(systemMinuteKey, 'cacheReadTokens', finalCacheReadTokens)
+
+    // 如果有实际模型且与请求模型不同，额外记录实际模型的统计（用于管理员统计）
+    if (actualModel && actualModel !== model) {
+      const normalizedActualModel = this._normalizeModelName(actualModel)
+      const actualModelDaily = `usage:model:daily:${normalizedActualModel}:${today}`
+      const actualModelMonthly = `usage:model:monthly:${normalizedActualModel}:${currentMonth}`
+      const actualModelHourly = `usage:model:hourly:${normalizedActualModel}:${currentHour}`
+      const keyActualModelDaily = `usage:${keyId}:model:daily:${normalizedActualModel}:${today}`
+      const keyActualModelMonthly = `usage:${keyId}:model:monthly:${normalizedActualModel}:${currentMonth}`
+      const keyActualModelHourly = `usage:${keyId}:model:hourly:${normalizedActualModel}:${currentHour}`
+
+      // 记录实际模型的系统级统计（用于管理界面查看）
+      pipeline.hincrby(actualModelDaily, 'inputTokens', finalInputTokens)
+      pipeline.hincrby(actualModelDaily, 'outputTokens', finalOutputTokens)
+      pipeline.hincrby(actualModelDaily, 'cacheCreateTokens', finalCacheCreateTokens)
+      pipeline.hincrby(actualModelDaily, 'cacheReadTokens', finalCacheReadTokens)
+      pipeline.hincrby(actualModelDaily, 'allTokens', totalTokens)
+      pipeline.hincrby(actualModelDaily, 'requests', 1)
+
+      pipeline.hincrby(actualModelMonthly, 'inputTokens', finalInputTokens)
+      pipeline.hincrby(actualModelMonthly, 'outputTokens', finalOutputTokens)
+      pipeline.hincrby(actualModelMonthly, 'cacheCreateTokens', finalCacheCreateTokens)
+      pipeline.hincrby(actualModelMonthly, 'cacheReadTokens', finalCacheReadTokens)
+      pipeline.hincrby(actualModelMonthly, 'allTokens', totalTokens)
+      pipeline.hincrby(actualModelMonthly, 'requests', 1)
+
+      pipeline.hincrby(actualModelHourly, 'inputTokens', finalInputTokens)
+      pipeline.hincrby(actualModelHourly, 'outputTokens', finalOutputTokens)
+      pipeline.hincrby(actualModelHourly, 'cacheCreateTokens', finalCacheCreateTokens)
+      pipeline.hincrby(actualModelHourly, 'cacheReadTokens', finalCacheReadTokens)
+      pipeline.hincrby(actualModelHourly, 'allTokens', totalTokens)
+      pipeline.hincrby(actualModelHourly, 'requests', 1)
+
+      // 记录 API Key 级别的实际模型统计
+      pipeline.hincrby(keyActualModelDaily, 'inputTokens', finalInputTokens)
+      pipeline.hincrby(keyActualModelDaily, 'outputTokens', finalOutputTokens)
+      pipeline.hincrby(keyActualModelDaily, 'cacheCreateTokens', finalCacheCreateTokens)
+      pipeline.hincrby(keyActualModelDaily, 'cacheReadTokens', finalCacheReadTokens)
+      pipeline.hincrby(keyActualModelDaily, 'allTokens', totalTokens)
+      pipeline.hincrby(keyActualModelDaily, 'requests', 1)
+
+      pipeline.hincrby(keyActualModelMonthly, 'inputTokens', finalInputTokens)
+      pipeline.hincrby(keyActualModelMonthly, 'outputTokens', finalOutputTokens)
+      pipeline.hincrby(keyActualModelMonthly, 'cacheCreateTokens', finalCacheCreateTokens)
+      pipeline.hincrby(keyActualModelMonthly, 'cacheReadTokens', finalCacheReadTokens)
+      pipeline.hincrby(keyActualModelMonthly, 'allTokens', totalTokens)
+      pipeline.hincrby(keyActualModelMonthly, 'requests', 1)
+
+      pipeline.hincrby(keyActualModelHourly, 'inputTokens', finalInputTokens)
+      pipeline.hincrby(keyActualModelHourly, 'outputTokens', finalOutputTokens)
+      pipeline.hincrby(keyActualModelHourly, 'cacheCreateTokens', finalCacheCreateTokens)
+      pipeline.hincrby(keyActualModelHourly, 'cacheReadTokens', finalCacheReadTokens)
+      pipeline.hincrby(keyActualModelHourly, 'allTokens', totalTokens)
+      pipeline.hincrby(keyActualModelHourly, 'requests', 1)
+
+      // 设置实际模型统计的过期时间
+      pipeline.expire(actualModelDaily, 86400 * 32)
+      pipeline.expire(actualModelMonthly, 86400 * 365)
+      pipeline.expire(actualModelHourly, 86400 * 7)
+      pipeline.expire(keyActualModelDaily, 86400 * 32)
+      pipeline.expire(keyActualModelMonthly, 86400 * 365)
+      pipeline.expire(keyActualModelHourly, 86400 * 7)
+    }
 
     // 设置过期时间
     pipeline.expire(daily, 86400 * 32) // 32天过期

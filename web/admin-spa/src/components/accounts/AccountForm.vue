@@ -1659,22 +1659,22 @@
               </label>
             </div>
 
-            <!-- Claude 账户级串行队列开关 -->
+            <!-- Claude 账户级最大并发数 -->
             <div v-if="form.platform === 'claude'" class="mt-4">
-              <label class="flex items-start">
+              <label class="block">
+                <span class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  最大并发数
+                </span>
                 <input
-                  v-model="form.serialQueueEnabled"
-                  class="mt-1 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                  type="checkbox"
+                  v-model.number="form.maxConcurrency"
+                  class="w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-3 text-sm text-gray-800 shadow-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/20"
+                  min="0"
+                  placeholder="0 表示不限制"
+                  type="number"
                 />
-                <div class="ml-3">
-                  <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    启用账户级串行队列
-                  </span>
-                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    开启后强制该账户的用户消息串行处理，忽略全局串行队列设置。适用于并发限制较低的账户。
-                  </p>
-                </div>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  限制该账户的最大并发请求数量，0 表示不限制
+                </p>
               </label>
             </div>
 
@@ -2683,22 +2683,22 @@
             </label>
           </div>
 
-          <!-- Claude 账户级串行队列开关（编辑模式） -->
+          <!-- Claude 账户级最大并发数（编辑模式） -->
           <div v-if="form.platform === 'claude'" class="mt-4">
-            <label class="flex items-start">
+            <label class="block">
+              <span class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                最大并发数
+              </span>
               <input
-                v-model="form.serialQueueEnabled"
-                class="mt-1 text-blue-600 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700"
-                type="checkbox"
+                v-model.number="form.maxConcurrency"
+                class="w-full rounded-xl border border-gray-200 bg-white/80 px-4 py-3 text-sm text-gray-800 shadow-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-200 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-100 dark:focus:border-indigo-500 dark:focus:ring-indigo-500/20"
+                min="0"
+                placeholder="0 表示不限制"
+                type="number"
               />
-              <div class="ml-3">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  启用账户级串行队列
-                </span>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  开启后强制该账户的用户消息串行处理，忽略全局串行队列设置。适用于并发限制较低的账户。
-                </p>
-              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                限制该账户的最大并发请求数量，0 表示不限制
+              </p>
             </label>
           </div>
 
@@ -4055,7 +4055,7 @@ const form = ref({
   useUnifiedUserAgent: props.account?.useUnifiedUserAgent || false, // 使用统一Claude Code版本
   useUnifiedClientId: props.account?.useUnifiedClientId || false, // 使用统一的客户端标识
   unifiedClientId: props.account?.unifiedClientId || '', // 统一的客户端标识
-  serialQueueEnabled: (props.account?.maxConcurrency || 0) > 0, // 账户级串行队列开关
+  maxConcurrency: props.account?.maxConcurrency || 0, // 账户级最大并发数（0=不限制）
   interceptWarmup:
     props.account?.interceptWarmup === true || props.account?.interceptWarmup === 'true', // 拦截预热请求
   groupId: '',
@@ -4648,7 +4648,7 @@ const buildClaudeAccountData = (tokenInfo, accountName, clientId) => {
     useUnifiedUserAgent: form.value.useUnifiedUserAgent || false,
     useUnifiedClientId: form.value.useUnifiedClientId || false,
     unifiedClientId: clientId,
-    maxConcurrency: form.value.serialQueueEnabled ? 1 : 0,
+    maxConcurrency: form.value.maxConcurrency || 0,
     subscriptionInfo: {
       accountType: form.value.subscriptionType || 'claude_max',
       hasClaudeMax: form.value.subscriptionType === 'claude_max',
@@ -4786,7 +4786,7 @@ const handleOAuthSuccess = async (tokenInfoOrList) => {
       data.useUnifiedUserAgent = form.value.useUnifiedUserAgent || false
       data.useUnifiedClientId = form.value.useUnifiedClientId || false
       data.unifiedClientId = form.value.unifiedClientId || ''
-      data.maxConcurrency = form.value.serialQueueEnabled ? 1 : 0
+      data.maxConcurrency = form.value.maxConcurrency || 0
       // 添加订阅类型信息
       data.subscriptionInfo = {
         accountType: form.value.subscriptionType || 'claude_max',
@@ -5110,7 +5110,7 @@ const createAccount = async () => {
       data.useUnifiedUserAgent = form.value.useUnifiedUserAgent || false
       data.useUnifiedClientId = form.value.useUnifiedClientId || false
       data.unifiedClientId = form.value.unifiedClientId || ''
-      data.maxConcurrency = form.value.serialQueueEnabled ? 1 : 0
+      data.maxConcurrency = form.value.maxConcurrency || 0
       // 添加订阅类型信息
       data.subscriptionInfo = {
         accountType: form.value.subscriptionType || 'claude_max',
@@ -5503,7 +5503,7 @@ const updateAccount = async () => {
       data.useUnifiedUserAgent = form.value.useUnifiedUserAgent || false
       data.useUnifiedClientId = form.value.useUnifiedClientId || false
       data.unifiedClientId = form.value.unifiedClientId || ''
-      data.maxConcurrency = form.value.serialQueueEnabled ? 1 : 0
+      data.maxConcurrency = form.value.maxConcurrency || 0
       // 更新订阅类型信息
       data.subscriptionInfo = {
         accountType: form.value.subscriptionType || 'claude_max',
@@ -6111,7 +6111,7 @@ watch(
         useUnifiedUserAgent: newAccount.useUnifiedUserAgent || false,
         useUnifiedClientId: newAccount.useUnifiedClientId || false,
         unifiedClientId: newAccount.unifiedClientId || '',
-        serialQueueEnabled: (newAccount.maxConcurrency || 0) > 0,
+        maxConcurrency: newAccount.maxConcurrency || 0,
         groupId: groupId,
         groupIds: [],
         projectId: newAccount.projectId || '',

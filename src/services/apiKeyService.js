@@ -1304,6 +1304,7 @@ class ApiKeyService {
     keyId,
     usageObject,
     model = 'unknown',
+    actualModel = null,
     accountId = null,
     accountType = null
   ) {
@@ -1388,7 +1389,8 @@ class ApiKeyService {
         model,
         ephemeral5mTokens, // 传递5分钟缓存 tokens
         ephemeral1hTokens, // 传递1小时缓存 tokens
-        costInfo.isLongContextRequest || false // 传递 1M 上下文请求标记
+        costInfo.isLongContextRequest || false, // 传递 1M 上下文请求标记
+        actualModel // 传递上游实际使用的模��（用于管理员统计）
       )
 
       const usageCost = typeof costInfo.totalCost === 'number' ? costInfo.totalCost : 0

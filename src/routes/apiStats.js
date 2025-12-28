@@ -454,7 +454,21 @@ router.post('/api/merge-renewal', async (req, res) => {
           }
         }
 
-        if (Number.isFinite(freshTargetExpiresAtMs)) {
+        // 对于总额度计划的永久 key，只需要合并额度，不需要设置过期时间
+        const isTotalCostLimitPermanentKey =
+          shouldMergeTotalCostLimit && !Number.isFinite(freshTargetExpiresAtMs)
+
+        if (isTotalCostLimitPermanentKey) {
+          // ���久 key 的总额度合并：只更新总额度，不修改过期时间
+          if (!newTotalCostLimit) {
+            await client.unwatch()
+            return res.status(400).json({
+              success: false,
+              error: 'No valid data to merge',
+              message: '没有有效的数据可以合并'
+            })
+          }
+        } else if (Number.isFinite(freshTargetExpiresAtMs)) {
           const baseMs = Math.max(Date.now(), freshTargetExpiresAtMs)
           newExpiresAt = new Date(baseMs + extendMs).toISOString()
         } else if (shouldMergeActivationPeriod) {
@@ -474,13 +488,19 @@ router.post('/api/merge-renewal', async (req, res) => {
         }
 
         const tx = client.multi()
-        const targetUpdates = newExpiresAt
-          ? { expiresAt: newExpiresAt, updatedAt: nowIso }
-          : {
-              activationDays: String(newActivationValue),
-              activationUnit: newActivationUnit,
-              updatedAt: nowIso
-            }
+        let targetUpdates
+        if (isTotalCostLimitPermanentKey) {
+          // 永久 key 只更新总额度
+          targetUpdates = { updatedAt: nowIso }
+        } else if (newExpiresAt) {
+          targetUpdates = { expiresAt: newExpiresAt, updatedAt: nowIso }
+        } else {
+          targetUpdates = {
+            activationDays: String(newActivationValue),
+            activationUnit: newActivationUnit,
+            updatedAt: nowIso
+          }
+        }
         if (newTotalCostLimit) {
           targetUpdates.totalCostLimit = newTotalCostLimit
         }
@@ -562,31 +582,37 @@ router.post('/api/merge-renewal', async (req, res) => {
           )
         }
 
-        logger.success(
-          newExpiresAt
-            ? `🔁 Merge renewal success: target=${targetKeyData.id}, renew=${renewKeyData.id}, extend=${activationPeriod} ${activationUnit}, newExpiresAt=${newExpiresAt}, ip=${clientIP}`
-            : `🔁 Merge renewal success: target=${targetKeyData.id}, renew=${renewKeyData.id}, extend=${activationPeriod} ${activationUnit}, newActivation=${newActivationValue} ${newActivationUnit}, ip=${clientIP}`
-        )
+        // 构建日志消息
+        let logMessage
+        if (isTotalCostLimitPermanentKey) {
+          logMessage = `🔁 Merge permanent key totalCostLimit success: target=${targetKeyData.id}, renew=${renewKeyData.id}, newTotalCostLimit=$${newTotalCostLimit}, mergedDelta=$${mergedTotalCostLimitDelta}, ip=${clientIP}`
+        } else if (newExpiresAt) {
+          logMessage = `🔁 Merge renewal success: target=${targetKeyData.id}, renew=${renewKeyData.id}, extend=${activationPeriod} ${activationUnit}, newExpiresAt=${newExpiresAt}, ip=${clientIP}`
+        } else {
+          logMessage = `🔁 Merge renewal success: target=${targetKeyData.id}, renew=${renewKeyData.id}, extend=${activationPeriod} ${activationUnit}, newActivation=${newActivationValue} ${newActivationUnit}, ip=${clientIP}`
+        }
+        logger.success(logMessage)
 
         return res.json({
           success: true,
           data: {
             ...(newExpiresAt ? { expiresAt: newExpiresAt } : {}),
-            ...(newExpiresAt
+            ...(isTotalCostLimitPermanentKey || newExpiresAt
               ? {}
               : {
                   activationValue: newActivationValue,
                   activationUnit: newActivationUnit
                 }),
-            extendValue: activationPeriod,
-            extendUnit: activationUnit,
+            extendValue: isTotalCostLimitPermanentKey ? 0 : activationPeriod,
+            extendUnit: isTotalCostLimitPermanentKey ? 'days' : activationUnit,
             ...(newTotalCostLimit
               ? {
                   totalCostLimit: Number.parseFloat(newTotalCostLimit) || 0,
                   mergedTotalCostLimitDelta
                 }
               : {}),
-            renewKeyId: renewKeyData.id
+            renewKeyId: renewKeyData.id,
+            isPermanentKey: isTotalCostLimitPermanentKey
           }
         })
       } catch (error) {

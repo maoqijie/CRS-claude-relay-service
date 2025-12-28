@@ -1277,7 +1277,8 @@ class DroidRelayService {
         usageResult = await apiKeyService.recordUsageWithDetails(
           keyId,
           usageObject,
-          model,
+          model, // 请求模型（用于用户查询统计）
+          null, // 实际模型（Droid服务，实际模型与请求模型相同）
           accountId,
           'droid'
         )

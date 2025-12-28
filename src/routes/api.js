@@ -422,7 +422,9 @@ async function handleMessagesRequest(req, res) {
               }
 
               const cacheReadTokens = usageData.cache_read_input_tokens || 0
-              const model = usageData.model || 'unknown'
+              const actualModel = usageData.model || 'unknown'
+              // 获取请求的模型（用于用户查询统计）
+              const requestedModel = req.body.model || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const { accountId: usageAccountId } = usageData
@@ -444,7 +446,14 @@ async function handleMessagesRequest(req, res) {
               }
 
               apiKeyService
-                .recordUsageWithDetails(req.apiKey.id, usageObject, model, usageAccountId, 'claude')
+                .recordUsageWithDetails(
+                  req.apiKey.id,
+                  usageObject,
+                  requestedModel, // 请求模型（用于用户查询统计）
+                  actualModel, // 实际模型（用于管理员统计）
+                  usageAccountId,
+                  'claude'
+                )
                 .then((usageResult) =>
                   queueRateLimitUpdate(
                     req.rateLimitInfo,
@@ -465,7 +474,7 @@ async function handleMessagesRequest(req, res) {
 
               usageDataCaptured = true
               logger.api(
-                `📊 Stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
+                `📊 Stream usage recorded (real) - Actual Model: ${actualModel}, Requested Model: ${requestedModel}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
               )
             } else {
               logger.warn(
@@ -509,7 +518,9 @@ async function handleMessagesRequest(req, res) {
               }
 
               const cacheReadTokens = usageData.cache_read_input_tokens || 0
-              const model = usageData.model || 'unknown'
+              const actualModel = usageData.model || 'unknown'
+              // 获取请求的模型（用于用户查询统计）
+              const requestedModel = req.body.model || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const usageAccountId = usageData.accountId
@@ -534,7 +545,8 @@ async function handleMessagesRequest(req, res) {
                 .recordUsageWithDetails(
                   req.apiKey.id,
                   usageObject,
-                  model,
+                  requestedModel, // 请求模型（用于用户查询统计）
+                  actualModel, // 实际模型（用于管理员统计）
                   usageAccountId,
                   'claude-console'
                 )
@@ -547,7 +559,7 @@ async function handleMessagesRequest(req, res) {
                       cacheCreateTokens,
                       cacheReadTokens
                     },
-                    model,
+                    requestedModel,
                     'claude-console-stream',
                     { costOverride: usageResult?.billableCost }
                   )
@@ -558,7 +570,7 @@ async function handleMessagesRequest(req, res) {
 
               usageDataCaptured = true
               logger.api(
-                `📊 Stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
+                `📊 Stream usage recorded (real) - Actual Model: ${actualModel}, Requested Model: ${requestedModel}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
               )
             } else {
               logger.warn(
@@ -654,7 +666,9 @@ async function handleMessagesRequest(req, res) {
               }
 
               const cacheReadTokens = usageData.cache_read_input_tokens || 0
-              const model = usageData.model || 'unknown'
+              const actualModel = usageData.model || 'unknown'
+              // 获取请求的模型（用于用户查询统计）
+              const requestedModel = req.body.model || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const usageAccountId = usageData.accountId
@@ -676,7 +690,14 @@ async function handleMessagesRequest(req, res) {
               }
 
               apiKeyService
-                .recordUsageWithDetails(req.apiKey.id, usageObject, model, usageAccountId, 'ccr')
+                .recordUsageWithDetails(
+                  req.apiKey.id,
+                  usageObject,
+                  requestedModel, // 请求模型（用于用户查询统计）
+                  actualModel, // 实际模型（用于管理员统计）
+                  usageAccountId,
+                  'ccr'
+                )
                 .then((usageResult) =>
                   queueRateLimitUpdate(
                     req.rateLimitInfo,
@@ -686,7 +707,7 @@ async function handleMessagesRequest(req, res) {
                       cacheCreateTokens,
                       cacheReadTokens
                     },
-                    model,
+                    requestedModel,
                     'ccr-stream',
                     { costOverride: usageResult?.billableCost }
                   )
