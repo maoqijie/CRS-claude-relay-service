@@ -4037,11 +4037,36 @@ const initProxyConfig = () => {
   return normalizeProxyFormState(props.account?.proxy)
 }
 
+// 标准化平台值 - 将后端返回的平台值映射为前端使用的简化值
+const normalizePlatform = (platform) => {
+  if (!platform) return 'claude'
+  // 将 claude-official 映射为 claude
+  if (platform === 'claude-official') return 'claude'
+  return platform
+}
+
+// 判断是否为 Claude 官方账户（通过多种方式检测）
+const isClaudeOfficialAccount = computed(() => {
+  // 方式1：检查 platform 字段
+  if (props.account?.platform === 'claude' || props.account?.platform === 'claude-official') {
+    return true
+  }
+  // 方式2：检查是否有 claudeAiOauth 字段（Claude 官方账户特有）
+  if (props.account?.claudeAiOauth) {
+    return true
+  }
+  // 方式3：检查是否有 email 或 refreshToken（Claude 官方账户特征）
+  if (props.account?.email || props.account?.refreshToken || props.account?.accessToken) {
+    return true
+  }
+  return false
+})
+
 // 表单数据
 const form = ref({
-  platform: props.account?.platform || 'claude',
+  platform: isClaudeOfficialAccount.value ? 'claude' : normalizePlatform(props.account?.platform),
   addType: (() => {
-    const platform = props.account?.platform || 'claude'
+    const platform = normalizePlatform(props.account?.platform)
     if (platform === 'gemini' || platform === 'openai') return 'oauth'
     if (platform === 'claude') return 'oauth'
     return 'manual'
