@@ -529,7 +529,7 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
       const currentDate = new Date(start)
       while (currentDate <= end) {
         const dateStr = redis.getDateStringInTimezone(currentDate)
-        searchPatterns.push(`usage:model:daily:*:${dateStr}`)
+        searchPatterns.push(`usage:actual_model:daily:*:${dateStr}`)
         currentDate.setDate(currentDate.getDate() + 1)
       }
 
@@ -538,8 +538,8 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
       // 使用默认的period
       const pattern =
         period === 'daily'
-          ? `usage:model:daily:*:${today}`
-          : `usage:model:monthly:*:${currentMonth}`
+          ? `usage:actual_model:daily:*:${today}`
+          : `usage:actual_model:monthly:*:${currentMonth}`
       searchPatterns = [pattern]
     }
 
@@ -548,7 +548,11 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
     // 获取所有匹配的keys
     const allKeys = []
     for (const pattern of searchPatterns) {
-      const keys = await redis.scanKeys(pattern)
+      let keys = await redis.scanKeys(pattern)
+      if (keys.length === 0 && pattern.startsWith('usage:actual_model:')) {
+        const legacyPattern = pattern.replace('usage:actual_model:', 'usage:model:')
+        keys = await redis.scanKeys(legacyPattern)
+      }
       allKeys.push(...keys)
     }
 
@@ -578,7 +582,9 @@ router.get('/model-stats', authenticateAdmin, async (req, res) => {
     const modelStatsMap = new Map()
 
     for (const key of allKeys) {
-      const match = key.match(/usage:model:daily:(.+):\d{4}-\d{2}-\d{2}$/)
+      const match =
+        key.match(/usage:(?:actual_model|model):daily:(.+):\d{4}-\d{2}-\d{2}$/) ||
+        key.match(/usage:(?:actual_model|model):monthly:(.+):\d{4}-\d{2}$/)
 
       if (!match) {
         logger.warn(`📊 Pattern mismatch for key: ${key}`)

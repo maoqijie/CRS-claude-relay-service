@@ -297,7 +297,7 @@ async function handleMessagesRequest(req, res) {
       }
 
       // 使用统一调度选择账号（传递请求的模型）
-      const requestedModel = req.body.model
+      const requestedModel = req.body.model || 'unknown'
       let accountId
       let accountType
       try {
@@ -423,8 +423,8 @@ async function handleMessagesRequest(req, res) {
 
               const cacheReadTokens = usageData.cache_read_input_tokens || 0
               const actualModel = usageData.model || 'unknown'
-              // 获取请求的模型（用于用户查询统计）
-              const requestedModel = req.body.model || 'unknown'
+              // 下游客户端请求的模型（用于用户查询统计）
+              const requestedModelForStats = requestedModel || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const { accountId: usageAccountId } = usageData
@@ -449,7 +449,7 @@ async function handleMessagesRequest(req, res) {
                 .recordUsageWithDetails(
                   req.apiKey.id,
                   usageObject,
-                  requestedModel, // 请求模型（用于用户查询统计）
+                  requestedModelForStats, // 请求模型（用于用户查询统计）
                   actualModel, // 实际模型（用于管理员统计）
                   usageAccountId,
                   'claude'
@@ -463,7 +463,7 @@ async function handleMessagesRequest(req, res) {
                       cacheCreateTokens,
                       cacheReadTokens
                     },
-                    model,
+                    requestedModelForStats,
                     'claude-stream',
                     { costOverride: usageResult?.billableCost }
                   )
@@ -474,7 +474,7 @@ async function handleMessagesRequest(req, res) {
 
               usageDataCaptured = true
               logger.api(
-                `📊 Stream usage recorded (real) - Actual Model: ${actualModel}, Requested Model: ${requestedModel}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
+                `📊 Stream usage recorded (real) - Actual Model: ${actualModel}, Requested Model: ${requestedModelForStats}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
               )
             } else {
               logger.warn(
@@ -519,8 +519,8 @@ async function handleMessagesRequest(req, res) {
 
               const cacheReadTokens = usageData.cache_read_input_tokens || 0
               const actualModel = usageData.model || 'unknown'
-              // 获取请求的模型（用于用户查询统计）
-              const requestedModel = req.body.model || 'unknown'
+              // 下游客户端请求的模型（用于用户查询统计）
+              const requestedModelForStats = requestedModel || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const usageAccountId = usageData.accountId
@@ -545,7 +545,7 @@ async function handleMessagesRequest(req, res) {
                 .recordUsageWithDetails(
                   req.apiKey.id,
                   usageObject,
-                  requestedModel, // 请求模型（用于用户查询统计）
+                  requestedModelForStats, // 请求模型（用于用户查询统计）
                   actualModel, // 实际模型（用于管理员统计）
                   usageAccountId,
                   'claude-console'
@@ -559,7 +559,7 @@ async function handleMessagesRequest(req, res) {
                       cacheCreateTokens,
                       cacheReadTokens
                     },
-                    requestedModel,
+                    requestedModelForStats,
                     'claude-console-stream',
                     { costOverride: usageResult?.billableCost }
                   )
@@ -570,7 +570,7 @@ async function handleMessagesRequest(req, res) {
 
               usageDataCaptured = true
               logger.api(
-                `📊 Stream usage recorded (real) - Actual Model: ${actualModel}, Requested Model: ${requestedModel}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
+                `📊 Stream usage recorded (real) - Actual Model: ${actualModel}, Requested Model: ${requestedModelForStats}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
               )
             } else {
               logger.warn(
@@ -667,8 +667,8 @@ async function handleMessagesRequest(req, res) {
 
               const cacheReadTokens = usageData.cache_read_input_tokens || 0
               const actualModel = usageData.model || 'unknown'
-              // 获取请求的模型（用于用户查询统计）
-              const requestedModel = req.body.model || 'unknown'
+              // 下游客户端请求的模型（用于用户查询统计）
+              const requestedModelForStats = requestedModel || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const usageAccountId = usageData.accountId
@@ -693,7 +693,7 @@ async function handleMessagesRequest(req, res) {
                 .recordUsageWithDetails(
                   req.apiKey.id,
                   usageObject,
-                  requestedModel, // 请求模型（用于用户查询统计）
+                  requestedModelForStats, // 请求模型（用于用户查询统计）
                   actualModel, // 实际模型（用于管理员统计）
                   usageAccountId,
                   'ccr'
@@ -707,7 +707,7 @@ async function handleMessagesRequest(req, res) {
                       cacheCreateTokens,
                       cacheReadTokens
                     },
-                    requestedModel,
+                    requestedModelForStats,
                     'ccr-stream',
                     { costOverride: usageResult?.billableCost }
                   )
@@ -718,7 +718,7 @@ async function handleMessagesRequest(req, res) {
 
               usageDataCaptured = true
               logger.api(
-                `📊 CCR stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
+                `📊 CCR stream usage recorded (real) - Actual Model: ${actualModel}, Requested Model: ${requestedModelForStats}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
               )
             } else {
               logger.warn(
@@ -1112,14 +1112,15 @@ async function handleMessagesRequest(req, res) {
   } catch (error) {
     let handledError = error
 
-    // 🔄 并发满额降级处理：捕获CONSOLE_ACCOUNT_CONCURRENCY_FULL错误
-    if (
-      handledError.code === 'CONSOLE_ACCOUNT_CONCURRENCY_FULL' &&
-      !req._concurrencyRetryAttempted
-    ) {
+    const isAccountConcurrencyFull = (err) =>
+      err?.code === 'CONSOLE_ACCOUNT_CONCURRENCY_FULL' ||
+      err?.code === 'CLAUDE_ACCOUNT_CONCURRENCY_FULL'
+
+    // 🔄 并发满额降级处理：捕获账户并发满额错误
+    if (isAccountConcurrencyFull(handledError) && !req._concurrencyRetryAttempted) {
       req._concurrencyRetryAttempted = true
       logger.warn(
-        `⚠️ Console account ${handledError.accountId} concurrency full, attempting fallback to other accounts...`
+        `⚠️ Account ${handledError.accountId} concurrency full, attempting fallback to other accounts...`
       )
 
       // 只有在响应头未发送时才能重试
@@ -1135,12 +1136,12 @@ async function handleMessagesRequest(req, res) {
           return await handleMessagesRequest(req, res)
         } catch (retryError) {
           // 重试失败
-          if (retryError.code === 'CONSOLE_ACCOUNT_CONCURRENCY_FULL') {
-            logger.error('❌ All Console accounts reached concurrency limit after retry')
+          if (isAccountConcurrencyFull(retryError)) {
+            logger.error('❌ All available accounts reached concurrency limit after retry')
             return res.status(503).json({
               error: 'service_unavailable',
               message:
-                'All available Claude Console accounts have reached their concurrency limit. Please try again later.'
+                'All available accounts have reached their concurrency limit. Please try again later.'
             })
           }
           // 其他错误继续向下处理
@@ -1157,16 +1158,13 @@ async function handleMessagesRequest(req, res) {
     }
 
     // 🚫 第二次并发满额错误：已经重试过，直接返回503
-    if (
-      handledError.code === 'CONSOLE_ACCOUNT_CONCURRENCY_FULL' &&
-      req._concurrencyRetryAttempted
-    ) {
-      logger.error('❌ All Console accounts reached concurrency limit (retry already attempted)')
+    if (isAccountConcurrencyFull(handledError) && req._concurrencyRetryAttempted) {
+      logger.error('❌ All available accounts reached concurrency limit (retry already attempted)')
       if (!res.headersSent) {
         return res.status(503).json({
           error: 'service_unavailable',
           message:
-            'All available Claude Console accounts have reached their concurrency limit. Please try again later.'
+            'All available accounts have reached their concurrency limit. Please try again later.'
         })
       } else {
         if (!res.destroyed && !res.finished) {
@@ -1546,9 +1544,12 @@ router.post('/v1/messages/count_tokens', authenticateApiKey, async (req, res) =>
 
       return
     } catch (error) {
-      if (error.code === 'CONSOLE_ACCOUNT_CONCURRENCY_FULL') {
+      if (
+        error.code === 'CONSOLE_ACCOUNT_CONCURRENCY_FULL' ||
+        error.code === 'CLAUDE_ACCOUNT_CONCURRENCY_FULL'
+      ) {
         logger.warn(
-          `⚠️ Console account concurrency full during count_tokens (attempt ${attempt + 1}/${maxAttempts})`
+          `⚠️ Account concurrency full during count_tokens (attempt ${attempt + 1}/${maxAttempts})`
         )
         if (attempt < maxAttempts - 1) {
           try {
@@ -1575,7 +1576,7 @@ router.post('/v1/messages/count_tokens', authenticateApiKey, async (req, res) =>
           return res.status(503).json({
             error: 'service_unavailable',
             message:
-              'All available Claude Console accounts have reached their concurrency limit. Please try again later.'
+              'All available accounts have reached their concurrency limit. Please try again later.'
           })
         }
         if (!res.destroyed && !res.finished) {

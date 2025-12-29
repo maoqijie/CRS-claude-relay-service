@@ -639,6 +639,15 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Priority must be a number between 1 and 100' })
     }
 
+    const parsedMaxConcurrency =
+      maxConcurrency === undefined || maxConcurrency === null || maxConcurrency === ''
+        ? 0
+        : Number(maxConcurrency)
+
+    if (!Number.isInteger(parsedMaxConcurrency) || parsedMaxConcurrency < 0) {
+      return res.status(400).json({ error: 'maxConcurrency must be a non-negative integer' })
+    }
+
     const newAccount = await claudeAccountService.createAccount({
       name,
       description,
@@ -656,7 +665,7 @@ router.post('/claude-accounts', authenticateAdmin, async (req, res) => {
       unifiedClientId: unifiedClientId || '', // 统一的客户端标识
       expiresAt: expiresAt || null, // 账户订阅到期时间
       extInfo: extInfo || null,
-      maxConcurrency: maxConcurrency || 0, // 账户级串行队列：0=使用全局配置，>0=强制启用
+      maxConcurrency: parsedMaxConcurrency, // 账户级最大并发请求数：0=不限制
       interceptWarmup: interceptWarmup === true // 拦截预热请求：默认为false
     })
 
@@ -699,6 +708,14 @@ router.put('/claude-accounts/:accountId', authenticateAdmin, async (req, res) =>
         mappedUpdates.priority > 100)
     ) {
       return res.status(400).json({ error: 'Priority must be a number between 1 and 100' })
+    }
+
+    if (mappedUpdates.maxConcurrency !== undefined) {
+      const parsed = mappedUpdates.maxConcurrency === '' ? 0 : Number(mappedUpdates.maxConcurrency)
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        return res.status(400).json({ error: 'maxConcurrency must be a non-negative integer' })
+      }
+      mappedUpdates.maxConcurrency = parsed
     }
 
     // 验证accountType的有效性

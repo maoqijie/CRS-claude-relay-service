@@ -18,6 +18,7 @@ const { createClaudeTestPayload } = require('../utils/testPayloadHelper')
 const userMessageQueueService = require('./userMessageQueueService')
 const { isStreamWritable } = require('../utils/streamHelper')
 const proxyPolicyService = require('./proxyPolicyService')
+const { v4: uuidv4 } = require('uuid')
 
 class ClaudeRelayService {
   constructor() {
@@ -154,6 +155,8 @@ class ClaudeRelayService {
     let queueLockAcquired = false
     let queueRequestId = null
     let selectedAccountId = null
+    const requestId = uuidv4()
+    let concurrencyAcquired = false
 
     try {
       // 调试日志：查看API Key数据
@@ -211,17 +214,7 @@ class ClaudeRelayService {
           logger.error('❌ accountId missing for queue lock in relayRequest')
           throw new Error('accountId missing for queue lock')
         }
-        // 获取账户信息以检查账户级串行队列配置
-        const accountForQueue = await claudeAccountService.getAccount(accountId)
-        const accountConfig = accountForQueue
-          ? { maxConcurrency: parseInt(accountForQueue.maxConcurrency || '0', 10) }
-          : null
-        const queueResult = await userMessageQueueService.acquireQueueLock(
-          accountId,
-          null,
-          null,
-          accountConfig
-        )
+        const queueResult = await userMessageQueueService.acquireQueueLock(accountId)
         if (!queueResult.acquired && !queueResult.skipped) {
           // 区分 Redis 后端错误和队列超时
           const isBackendError = queueResult.error === 'queue_backend_error'
@@ -307,6 +300,33 @@ class ClaudeRelayService {
           }),
           accountId
         }
+      }
+
+      // 🔒 Claude 官方账号并发控制：原子性抢占槽位
+      const maxConcurrency = Number.parseInt(account?.maxConcurrency || '0', 10) || 0
+      if (maxConcurrency > 0) {
+        const newConcurrency = Number(
+          await redis.incrClaudeAccountConcurrency(accountId, requestId, 600)
+        )
+        concurrencyAcquired = true
+
+        if (newConcurrency > maxConcurrency) {
+          await redis.decrClaudeAccountConcurrency(accountId, requestId)
+          concurrencyAcquired = false
+
+          logger.warn(
+            `⚠️ Claude official account ${account?.name || accountId} concurrency limit exceeded: ${newConcurrency}/${maxConcurrency} (request: ${requestId}, rolled back)`
+          )
+
+          const concurrencyError = new Error('Claude official account concurrency limit reached')
+          concurrencyError.code = 'CLAUDE_ACCOUNT_CONCURRENCY_FULL'
+          concurrencyError.accountId = accountId
+          throw concurrencyError
+        }
+
+        logger.debug(
+          `🔓 Acquired concurrency slot for Claude official account ${account?.name || accountId}, current: ${newConcurrency}/${maxConcurrency}, request: ${requestId}`
+        )
       }
 
       // 获取有效的访问token
@@ -662,6 +682,21 @@ class ClaudeRelayService {
       )
       throw error
     } finally {
+      // 🔓 Claude 官方账号并发控制：释放并发槽位
+      if (concurrencyAcquired && selectedAccountId) {
+        try {
+          await redis.decrClaudeAccountConcurrency(selectedAccountId, requestId)
+          logger.debug(
+            `🔓 Released concurrency slot for Claude official account ${selectedAccountId}, request: ${requestId}`
+          )
+        } catch (releaseError) {
+          logger.error(
+            `❌ Failed to release concurrency slot for Claude official account ${selectedAccountId}, request: ${requestId}:`,
+            releaseError.message
+          )
+        }
+      }
+
       // 📬 释放用户消息队列锁（兜底，正常情况下已在请求发送后提前释放）
       if (queueLockAcquired && queueRequestId && selectedAccountId) {
         try {
@@ -1312,6 +1347,9 @@ class ClaudeRelayService {
     let queueLockAcquired = false
     let queueRequestId = null
     let selectedAccountId = null
+    const requestId = uuidv4()
+    let concurrencyAcquired = false
+    let leaseRefreshInterval = null
 
     try {
       // 调试日志：查看API Key数据（流式请求）
@@ -1365,17 +1403,7 @@ class ClaudeRelayService {
           logger.error('❌ accountId missing for queue lock in relayStreamRequestWithUsageCapture')
           throw new Error('accountId missing for queue lock')
         }
-        // 获取账户信息以检查账户级串行队列配置
-        const accountForQueue = await claudeAccountService.getAccount(accountId)
-        const accountConfig = accountForQueue
-          ? { maxConcurrency: parseInt(accountForQueue.maxConcurrency || '0', 10) }
-          : null
-        const queueResult = await userMessageQueueService.acquireQueueLock(
-          accountId,
-          null,
-          null,
-          accountConfig
-        )
+        const queueResult = await userMessageQueueService.acquireQueueLock(accountId)
         if (!queueResult.acquired && !queueResult.skipped) {
           // 区分 Redis 后端错误和队列超时
           const isBackendError = queueResult.error === 'queue_backend_error'
@@ -1473,6 +1501,51 @@ class ClaudeRelayService {
         return
       }
 
+      // 🔒 Claude 官方账号并发控制：原子性抢占槽位
+      const maxConcurrency = Number.parseInt(account?.maxConcurrency || '0', 10) || 0
+      if (maxConcurrency > 0) {
+        const newConcurrency = Number(
+          await redis.incrClaudeAccountConcurrency(accountId, requestId, 600)
+        )
+        concurrencyAcquired = true
+
+        if (newConcurrency > maxConcurrency) {
+          await redis.decrClaudeAccountConcurrency(accountId, requestId)
+          concurrencyAcquired = false
+
+          logger.warn(
+            `⚠️ Claude official account ${account?.name || accountId} concurrency limit exceeded: ${newConcurrency}/${maxConcurrency} (stream request: ${requestId}, rolled back)`
+          )
+
+          const concurrencyError = new Error('Claude official account concurrency limit reached')
+          concurrencyError.code = 'CLAUDE_ACCOUNT_CONCURRENCY_FULL'
+          concurrencyError.accountId = accountId
+          throw concurrencyError
+        }
+
+        logger.debug(
+          `🔓 Acquired concurrency slot for Claude official stream account ${account?.name || accountId}, current: ${newConcurrency}/${maxConcurrency}, request: ${requestId}`
+        )
+
+        // 🔄 启动租约刷新定时器（每5分钟刷新一次，防止长连接租约过期）
+        leaseRefreshInterval = setInterval(
+          async () => {
+            try {
+              await redis.refreshClaudeAccountConcurrencyLease(accountId, requestId, 600)
+              logger.debug(
+                `🔄 Refreshed concurrency lease for Claude official stream account ${account?.name || accountId}, request: ${requestId}`
+              )
+            } catch (refreshError) {
+              logger.error(
+                `❌ Failed to refresh concurrency lease for Claude official account ${accountId}, request: ${requestId}:`,
+                refreshError.message
+              )
+            }
+          },
+          5 * 60 * 1000
+        )
+      }
+
       // 获取有效的访问token
       const accessToken = await claudeAccountService.getValidAccessToken(accountId)
 
@@ -1527,6 +1600,29 @@ class ClaudeRelayService {
       }
       throw error
     } finally {
+      // 🛑 清理租约刷新定时器
+      if (leaseRefreshInterval) {
+        clearInterval(leaseRefreshInterval)
+        logger.debug(
+          `🛑 Cleared lease refresh interval for Claude official stream account ${selectedAccountId}, request: ${requestId}`
+        )
+      }
+
+      // 🔓 Claude 官方账号并发控制：释放并发槽位
+      if (concurrencyAcquired && selectedAccountId) {
+        try {
+          await redis.decrClaudeAccountConcurrency(selectedAccountId, requestId)
+          logger.debug(
+            `🔓 Released concurrency slot for Claude official stream account ${selectedAccountId}, request: ${requestId}`
+          )
+        } catch (releaseError) {
+          logger.error(
+            `❌ Failed to release concurrency slot for Claude official stream account ${selectedAccountId}, request: ${requestId}:`,
+            releaseError.message
+          )
+        }
+      }
+
       // 📬 释放用户消息队列锁（兜底，正常情况下已在收到响应头后提前释放）
       if (queueLockAcquired && queueRequestId && selectedAccountId) {
         try {

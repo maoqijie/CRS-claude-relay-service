@@ -93,7 +93,7 @@ class ClaudeAccountService {
       unifiedClientId = '', // 统一的客户端标识
       expiresAt = null, // 账户订阅到期时间
       extInfo = null, // 额外扩展信息
-      maxConcurrency = 0, // 账户级用户消息串行队列：0=使用全局配置，>0=强制启用串行
+      maxConcurrency = 0, // 账户级最大并发请求数：0=不限制
       interceptWarmup = false // 拦截预热请求（标题生成、Warmup等）
     } = options
 
@@ -140,7 +140,7 @@ class ClaudeAccountService {
         subscriptionExpiresAt: expiresAt || '',
         // 扩展信息
         extInfo: normalizedExtInfo ? JSON.stringify(normalizedExtInfo) : '',
-        // 账户级用户消息串行队列限制
+        // 账户级最大并发请求数
         maxConcurrency: maxConcurrency.toString(),
         // 拦截预热请求
         interceptWarmup: interceptWarmup.toString()
@@ -176,7 +176,7 @@ class ClaudeAccountService {
         subscriptionExpiresAt: expiresAt || '',
         // 扩展信息
         extInfo: normalizedExtInfo ? JSON.stringify(normalizedExtInfo) : '',
-        // 账户级用户消息串行队列限制
+        // 账户级最大并发请求数
         maxConcurrency: maxConcurrency.toString(),
         // 拦截预热请求
         interceptWarmup: interceptWarmup.toString()
@@ -597,7 +597,7 @@ class ClaudeAccountService {
             stoppedReason: account.stoppedReason || null,
             // 扩展信息
             extInfo: parsedExtInfo,
-            // 账户级用户消息串行队列限制
+            // 账户级最大并发请求数
             maxConcurrency: parseInt(account.maxConcurrency || '0', 10),
             // 拦截预热请求
             interceptWarmup: account.interceptWarmup === 'true'

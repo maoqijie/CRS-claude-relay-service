@@ -1114,6 +1114,18 @@ class RedisClient {
     const keyModelMonthly = `usage:${keyId}:model:monthly:${normalizedModel}:${currentMonth}`
     const keyModelHourly = `usage:${keyId}:model:hourly:${normalizedModel}:${currentHour}` // 新增API Key模型小时级别
 
+    // ✅ 新增：按“上游实际模型”统计（用于管理端展示）
+    const resolvedActualModel = actualModel || model
+    const normalizedActualModel = this._normalizeModelName(resolvedActualModel)
+
+    const actualModelDaily = `usage:actual_model:daily:${normalizedActualModel}:${today}`
+    const actualModelMonthly = `usage:actual_model:monthly:${normalizedActualModel}:${currentMonth}`
+    const actualModelHourly = `usage:actual_model:hourly:${normalizedActualModel}:${currentHour}`
+
+    const keyActualModelDaily = `usage:${keyId}:actual_model:daily:${normalizedActualModel}:${today}`
+    const keyActualModelMonthly = `usage:${keyId}:actual_model:monthly:${normalizedActualModel}:${currentMonth}`
+    const keyActualModelHourly = `usage:${keyId}:actual_model:hourly:${normalizedActualModel}:${currentHour}`
+
     // 新增：系统级分钟统计
     const minuteTimestamp = Math.floor(now.getTime() / 60000)
     const systemMinuteKey = `system:metrics:minute:${minuteTimestamp}`
@@ -1247,6 +1259,55 @@ class RedisClient {
     pipeline.hincrby(keyModelHourly, 'allTokens', totalTokens)
     pipeline.hincrby(keyModelHourly, 'requests', 1)
 
+    // ========= 实际模型统计（管理端）=========
+    // 系统级实际模型统计 - 每日/每月/每小时
+    pipeline.hincrby(actualModelDaily, 'inputTokens', finalInputTokens)
+    pipeline.hincrby(actualModelDaily, 'outputTokens', finalOutputTokens)
+    pipeline.hincrby(actualModelDaily, 'cacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(actualModelDaily, 'cacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(actualModelDaily, 'allTokens', totalTokens)
+    pipeline.hincrby(actualModelDaily, 'requests', 1)
+
+    pipeline.hincrby(actualModelMonthly, 'inputTokens', finalInputTokens)
+    pipeline.hincrby(actualModelMonthly, 'outputTokens', finalOutputTokens)
+    pipeline.hincrby(actualModelMonthly, 'cacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(actualModelMonthly, 'cacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(actualModelMonthly, 'allTokens', totalTokens)
+    pipeline.hincrby(actualModelMonthly, 'requests', 1)
+
+    pipeline.hincrby(actualModelHourly, 'inputTokens', finalInputTokens)
+    pipeline.hincrby(actualModelHourly, 'outputTokens', finalOutputTokens)
+    pipeline.hincrby(actualModelHourly, 'cacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(actualModelHourly, 'cacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(actualModelHourly, 'allTokens', totalTokens)
+    pipeline.hincrby(actualModelHourly, 'requests', 1)
+
+    // API Key级别实际模型统计 - 每日/每月/每小时
+    pipeline.hincrby(keyActualModelDaily, 'inputTokens', finalInputTokens)
+    pipeline.hincrby(keyActualModelDaily, 'outputTokens', finalOutputTokens)
+    pipeline.hincrby(keyActualModelDaily, 'cacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(keyActualModelDaily, 'cacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(keyActualModelDaily, 'allTokens', totalTokens)
+    pipeline.hincrby(keyActualModelDaily, 'requests', 1)
+    pipeline.hincrby(keyActualModelDaily, 'ephemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(keyActualModelDaily, 'ephemeral1hTokens', ephemeral1hTokens)
+
+    pipeline.hincrby(keyActualModelMonthly, 'inputTokens', finalInputTokens)
+    pipeline.hincrby(keyActualModelMonthly, 'outputTokens', finalOutputTokens)
+    pipeline.hincrby(keyActualModelMonthly, 'cacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(keyActualModelMonthly, 'cacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(keyActualModelMonthly, 'allTokens', totalTokens)
+    pipeline.hincrby(keyActualModelMonthly, 'requests', 1)
+    pipeline.hincrby(keyActualModelMonthly, 'ephemeral5mTokens', ephemeral5mTokens)
+    pipeline.hincrby(keyActualModelMonthly, 'ephemeral1hTokens', ephemeral1hTokens)
+
+    pipeline.hincrby(keyActualModelHourly, 'inputTokens', finalInputTokens)
+    pipeline.hincrby(keyActualModelHourly, 'outputTokens', finalOutputTokens)
+    pipeline.hincrby(keyActualModelHourly, 'cacheCreateTokens', finalCacheCreateTokens)
+    pipeline.hincrby(keyActualModelHourly, 'cacheReadTokens', finalCacheReadTokens)
+    pipeline.hincrby(keyActualModelHourly, 'allTokens', totalTokens)
+    pipeline.hincrby(keyActualModelHourly, 'requests', 1)
+
     // 新增：系统级分钟统计
     pipeline.hincrby(systemMinuteKey, 'requests', 1)
     pipeline.hincrby(systemMinuteKey, 'totalTokens', totalTokens)
@@ -1255,68 +1316,13 @@ class RedisClient {
     pipeline.hincrby(systemMinuteKey, 'cacheCreateTokens', finalCacheCreateTokens)
     pipeline.hincrby(systemMinuteKey, 'cacheReadTokens', finalCacheReadTokens)
 
-    // 如果有实际模型且与请求模型不同，额外记录实际模型的统计（用于管理员统计）
-    if (actualModel && actualModel !== model) {
-      const normalizedActualModel = this._normalizeModelName(actualModel)
-      const actualModelDaily = `usage:model:daily:${normalizedActualModel}:${today}`
-      const actualModelMonthly = `usage:model:monthly:${normalizedActualModel}:${currentMonth}`
-      const actualModelHourly = `usage:model:hourly:${normalizedActualModel}:${currentHour}`
-      const keyActualModelDaily = `usage:${keyId}:model:daily:${normalizedActualModel}:${today}`
-      const keyActualModelMonthly = `usage:${keyId}:model:monthly:${normalizedActualModel}:${currentMonth}`
-      const keyActualModelHourly = `usage:${keyId}:model:hourly:${normalizedActualModel}:${currentHour}`
-
-      // 记录实际模型的系统级统计（用于管理界面查看）
-      pipeline.hincrby(actualModelDaily, 'inputTokens', finalInputTokens)
-      pipeline.hincrby(actualModelDaily, 'outputTokens', finalOutputTokens)
-      pipeline.hincrby(actualModelDaily, 'cacheCreateTokens', finalCacheCreateTokens)
-      pipeline.hincrby(actualModelDaily, 'cacheReadTokens', finalCacheReadTokens)
-      pipeline.hincrby(actualModelDaily, 'allTokens', totalTokens)
-      pipeline.hincrby(actualModelDaily, 'requests', 1)
-
-      pipeline.hincrby(actualModelMonthly, 'inputTokens', finalInputTokens)
-      pipeline.hincrby(actualModelMonthly, 'outputTokens', finalOutputTokens)
-      pipeline.hincrby(actualModelMonthly, 'cacheCreateTokens', finalCacheCreateTokens)
-      pipeline.hincrby(actualModelMonthly, 'cacheReadTokens', finalCacheReadTokens)
-      pipeline.hincrby(actualModelMonthly, 'allTokens', totalTokens)
-      pipeline.hincrby(actualModelMonthly, 'requests', 1)
-
-      pipeline.hincrby(actualModelHourly, 'inputTokens', finalInputTokens)
-      pipeline.hincrby(actualModelHourly, 'outputTokens', finalOutputTokens)
-      pipeline.hincrby(actualModelHourly, 'cacheCreateTokens', finalCacheCreateTokens)
-      pipeline.hincrby(actualModelHourly, 'cacheReadTokens', finalCacheReadTokens)
-      pipeline.hincrby(actualModelHourly, 'allTokens', totalTokens)
-      pipeline.hincrby(actualModelHourly, 'requests', 1)
-
-      // 记录 API Key 级别的实际模型统计
-      pipeline.hincrby(keyActualModelDaily, 'inputTokens', finalInputTokens)
-      pipeline.hincrby(keyActualModelDaily, 'outputTokens', finalOutputTokens)
-      pipeline.hincrby(keyActualModelDaily, 'cacheCreateTokens', finalCacheCreateTokens)
-      pipeline.hincrby(keyActualModelDaily, 'cacheReadTokens', finalCacheReadTokens)
-      pipeline.hincrby(keyActualModelDaily, 'allTokens', totalTokens)
-      pipeline.hincrby(keyActualModelDaily, 'requests', 1)
-
-      pipeline.hincrby(keyActualModelMonthly, 'inputTokens', finalInputTokens)
-      pipeline.hincrby(keyActualModelMonthly, 'outputTokens', finalOutputTokens)
-      pipeline.hincrby(keyActualModelMonthly, 'cacheCreateTokens', finalCacheCreateTokens)
-      pipeline.hincrby(keyActualModelMonthly, 'cacheReadTokens', finalCacheReadTokens)
-      pipeline.hincrby(keyActualModelMonthly, 'allTokens', totalTokens)
-      pipeline.hincrby(keyActualModelMonthly, 'requests', 1)
-
-      pipeline.hincrby(keyActualModelHourly, 'inputTokens', finalInputTokens)
-      pipeline.hincrby(keyActualModelHourly, 'outputTokens', finalOutputTokens)
-      pipeline.hincrby(keyActualModelHourly, 'cacheCreateTokens', finalCacheCreateTokens)
-      pipeline.hincrby(keyActualModelHourly, 'cacheReadTokens', finalCacheReadTokens)
-      pipeline.hincrby(keyActualModelHourly, 'allTokens', totalTokens)
-      pipeline.hincrby(keyActualModelHourly, 'requests', 1)
-
-      // 设置实际模型统计的过期时间
-      pipeline.expire(actualModelDaily, 86400 * 32)
-      pipeline.expire(actualModelMonthly, 86400 * 365)
-      pipeline.expire(actualModelHourly, 86400 * 7)
-      pipeline.expire(keyActualModelDaily, 86400 * 32)
-      pipeline.expire(keyActualModelMonthly, 86400 * 365)
-      pipeline.expire(keyActualModelHourly, 86400 * 7)
-    }
+    // 设置实际模型统计的过期时间
+    pipeline.expire(actualModelDaily, 86400 * 32)
+    pipeline.expire(actualModelMonthly, 86400 * 365)
+    pipeline.expire(actualModelHourly, 86400 * 7)
+    pipeline.expire(keyActualModelDaily, 86400 * 32)
+    pipeline.expire(keyActualModelMonthly, 86400 * 365)
+    pipeline.expire(keyActualModelHourly, 86400 * 7)
 
     // 设置过期时间
     pipeline.expire(daily, 86400 * 32) // 32天过期
@@ -3344,6 +3350,33 @@ class RedisClient {
   // 获取 Console 账户当前并发数
   async getConsoleAccountConcurrency(accountId) {
     const compositeKey = `console_account:${accountId}`
+    return await this.getConcurrency(compositeKey)
+  }
+
+  // 🏢 Claude Official 账户并发控制（复用现有并发机制）
+  async incrClaudeAccountConcurrency(accountId, requestId, leaseSeconds = null) {
+    if (!requestId) {
+      throw new Error('Request ID is required for claude account concurrency tracking')
+    }
+    const compositeKey = `claude_account:${accountId}`
+    return await this.incrConcurrency(compositeKey, requestId, leaseSeconds)
+  }
+
+  async refreshClaudeAccountConcurrencyLease(accountId, requestId, leaseSeconds = null) {
+    if (!requestId) {
+      return 0
+    }
+    const compositeKey = `claude_account:${accountId}`
+    return await this.refreshConcurrencyLease(compositeKey, requestId, leaseSeconds)
+  }
+
+  async decrClaudeAccountConcurrency(accountId, requestId) {
+    const compositeKey = `claude_account:${accountId}`
+    return await this.decrConcurrency(compositeKey, requestId)
+  }
+
+  async getClaudeAccountConcurrency(accountId) {
+    const compositeKey = `claude_account:${accountId}`
     return await this.getConcurrency(compositeKey)
   }
 

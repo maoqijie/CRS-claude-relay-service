@@ -1309,6 +1309,11 @@ class ApiKeyService {
     accountType = null
   ) {
     try {
+      const { parseVendorPrefixedModel } = require('../utils/modelHelper')
+      const costModelRaw = actualModel || model || 'unknown'
+      const { baseModel: costModelBase } = parseVendorPrefixedModel(costModelRaw)
+      const costModel = costModelBase || costModelRaw || 'unknown'
+
       // 提取 token 数量
       const inputTokens = usageObject.input_tokens || 0
       const outputTokens = usageObject.output_tokens || 0
@@ -1326,17 +1331,17 @@ class ApiKeyService {
           logger.warn('⚠️ PricingService not initialized, initializing now...')
           await pricingService.initialize()
         }
-        costInfo = pricingService.calculateCost(usageObject, model)
+        costInfo = pricingService.calculateCost(usageObject, costModel)
 
         // 验证计算结果
         if (!costInfo || typeof costInfo.totalCost !== 'number') {
-          logger.error(`❌ Invalid cost calculation result for model ${model}:`, costInfo)
+          logger.error(`❌ Invalid cost calculation result for model ${costModel}:`, costInfo)
           // 使用 CostCalculator 作为后备
           const CostCalculator = require('../utils/costCalculator')
-          const fallbackCost = CostCalculator.calculateCost(usageObject, model)
+          const fallbackCost = CostCalculator.calculateCost(usageObject, costModel)
           if (fallbackCost && fallbackCost.costs && fallbackCost.costs.total > 0) {
             logger.warn(
-              `⚠️ Using fallback cost calculation for ${model}: $${fallbackCost.costs.total}`
+              `⚠️ Using fallback cost calculation for ${costModel}: $${fallbackCost.costs.total}`
             )
             costInfo = {
               totalCost: fallbackCost.costs.total,
@@ -1348,15 +1353,15 @@ class ApiKeyService {
           }
         }
       } catch (pricingError) {
-        logger.error(`❌ Failed to calculate cost for model ${model}:`, pricingError)
+        logger.error(`❌ Failed to calculate cost for model ${costModel}:`, pricingError)
         logger.error(`   Usage object:`, JSON.stringify(usageObject))
         // 使用 CostCalculator 作为后备
         try {
           const CostCalculator = require('../utils/costCalculator')
-          const fallbackCost = CostCalculator.calculateCost(usageObject, model)
+          const fallbackCost = CostCalculator.calculateCost(usageObject, costModel)
           if (fallbackCost && fallbackCost.costs && fallbackCost.costs.total > 0) {
             logger.warn(
-              `⚠️ Using fallback cost calculation for ${model}: $${fallbackCost.costs.total}`
+              `⚠️ Using fallback cost calculation for ${costModel}: $${fallbackCost.costs.total}`
             )
             costInfo = {
               totalCost: fallbackCost.costs.total,
@@ -1420,11 +1425,11 @@ class ApiKeyService {
       if (costInfo.totalCost > 0) {
         await redis.incrementDailyCost(keyId, costInfo.totalCost)
         logger.database(
-          `💰 Recorded cost for ${keyId}: $${costInfo.totalCost.toFixed(6)}, model: ${model}`
+          `💰 Recorded cost for ${keyId}: $${costInfo.totalCost.toFixed(6)}, model: ${costModel}`
         )
 
         // 记录 Opus 周费用（如果适用）
-        await this.recordOpusCost(keyId, costInfo.totalCost, model, accountType)
+        await this.recordOpusCost(keyId, costInfo.totalCost, costModel, accountType)
 
         // 记录详细的缓存费用（如果有）
         if (costInfo.ephemeral5mCost > 0 || costInfo.ephemeral1hCost > 0) {
@@ -1459,7 +1464,7 @@ class ApiKeyService {
             outputTokens,
             cacheCreateTokens,
             cacheReadTokens,
-            model,
+            costModel,
             costInfo.isLongContextRequest || false
           )
           logger.database(
@@ -1475,6 +1480,7 @@ class ApiKeyService {
       const usageRecord = {
         timestamp: new Date().toISOString(),
         model,
+        actualModel: actualModel || null,
         accountId: accountId || null,
         accountType: accountType || null,
         inputTokens,

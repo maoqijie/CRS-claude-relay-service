@@ -646,6 +646,18 @@ class UnifiedClaudeScheduler {
           }
         }
 
+        // 🔒 检查 Claude Official 账户的并发限制
+        const maxConcurrency = Number.parseInt(account.maxConcurrency || '0', 10) || 0
+        if (maxConcurrency > 0) {
+          const currentConcurrency = await redis.getClaudeAccountConcurrency(account.id)
+          if (currentConcurrency >= maxConcurrency) {
+            logger.info(
+              `🚫 Skipping Claude Official account ${account.name} (${account.id}) due to concurrency limit: ${currentConcurrency}/${maxConcurrency}`
+            )
+            continue
+          }
+        }
+
         availableAccounts.push({
           ...account,
           accountId: account.id,
@@ -1010,6 +1022,18 @@ class UnifiedClaudeScheduler {
           const isOpusRateLimited = await claudeAccountService.isAccountOpusRateLimited(accountId)
           if (isOpusRateLimited) {
             logger.info(`🚫 Account ${accountId} skipped due to active Opus limit (session check)`)
+            return false
+          }
+        }
+
+        // 检查并发限制（预检查，真正的原子抢占在 relayService 中进行）
+        const maxConcurrency = Number.parseInt(account.maxConcurrency || '0', 10) || 0
+        if (maxConcurrency > 0) {
+          const currentConcurrency = await redis.getClaudeAccountConcurrency(accountId)
+          if (currentConcurrency >= maxConcurrency) {
+            logger.info(
+              `🚫 Claude Official account ${accountId} reached concurrency limit: ${currentConcurrency}/${maxConcurrency} (session check)`
+            )
             return false
           }
         }
@@ -1568,6 +1592,20 @@ class UnifiedClaudeScheduler {
             }
           }
 
+          // 🔒 检查 Claude Official 账户的并发限制
+          if (accountType === 'claude-official') {
+            const maxConcurrency = Number.parseInt(account.maxConcurrency || '0', 10) || 0
+            if (maxConcurrency > 0) {
+              const currentConcurrency = await redis.getClaudeAccountConcurrency(account.id)
+              if (currentConcurrency >= maxConcurrency) {
+                logger.info(
+                  `🚫 Skipping group member ${account.name} (${account.id}) due to concurrency limit: ${currentConcurrency}/${maxConcurrency}`
+                )
+                continue
+              }
+            }
+          }
+
           // 🔒 检查 Claude Console 账户的并发限制
           if (accountType === 'claude-console' && account.maxConcurrentTasks > 0) {
             const currentConcurrency = await redis.getConsoleAccountConcurrency(account.id)
@@ -1809,6 +1847,18 @@ class UnifiedClaudeScheduler {
       if (await this.isAccountTemporarilyUnavailable(accountId, accountType)) {
         logger.warn(`Session binding: Claude OAuth account ${accountId} is temporarily unavailable`)
         return false
+      }
+
+      // 检查并发限制（预检查）
+      const maxConcurrency = Number.parseInt(account.maxConcurrency || '0', 10) || 0
+      if (maxConcurrency > 0) {
+        const currentConcurrency = await redis.getClaudeAccountConcurrency(accountId)
+        if (currentConcurrency >= maxConcurrency) {
+          logger.warn(
+            `Session binding: Claude OAuth account ${accountId} reached concurrency limit: ${currentConcurrency}/${maxConcurrency}`
+          )
+          return false
+        }
       }
 
       return true

@@ -282,14 +282,6 @@ router.post('/api/merge-renewal', async (req, res) => {
       !targetIsActivated &&
       !Number.isFinite(targetExpiresAtMs)
 
-    if (!Number.isFinite(targetExpiresAtMs) && !targetAllowActivationMerge) {
-      return res.status(400).json({
-        success: false,
-        error: 'API key has no expiry',
-        message: '当前 API Key 没有设置过期时间，无法续费'
-      })
-    }
-
     const renewKeyData = await apiKeyService.getApiKeyByRawKey(trimmedRenewKey)
     if (!renewKeyData || Object.keys(renewKeyData).length === 0) {
       logger.security(`🔒 Merge renewal: renew key not found from ${clientIP}`)
@@ -337,6 +329,24 @@ router.post('/api/merge-renewal', async (req, res) => {
         success: false,
         error: 'Renew key already activated',
         message: '续费 Key 已激活/已使用，无法用于续费'
+      })
+    }
+
+    // ✅ 允许“总额度计划”的永久 Key 合并：不需要 expiresAt
+    const isTargetTotalCostLimitPlan = isTotalCostLimitPlan(targetKeyData)
+    const isRenewTotalCostLimitPlan = isTotalCostLimitPlan(renewKeyData)
+    const allowPermanentTotalCostMerge =
+      isTargetTotalCostLimitPlan && isRenewTotalCostLimitPlan && !Number.isFinite(targetExpiresAtMs)
+
+    if (
+      !Number.isFinite(targetExpiresAtMs) &&
+      !targetAllowActivationMerge &&
+      !allowPermanentTotalCostMerge
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'API key has no expiry',
+        message: '当前 API Key 没有设置过期时间，无法续费'
       })
     }
 
@@ -459,7 +469,7 @@ router.post('/api/merge-renewal', async (req, res) => {
           shouldMergeTotalCostLimit && !Number.isFinite(freshTargetExpiresAtMs)
 
         if (isTotalCostLimitPermanentKey) {
-          // ���久 key 的总额度合并：只更新总额度，不修改过期时间
+          // 永久 key 的总额度合并：只更新总额度，不修改过期时间
           if (!newTotalCostLimit) {
             await client.unwatch()
             return res.status(400).json({
@@ -532,11 +542,13 @@ router.post('/api/merge-renewal', async (req, res) => {
           const postgresStore = require('../models/postgresStore')
 
           const targetUpdated = { ...freshTarget }
-          if (newExpiresAt) {
-            targetUpdated.expiresAt = newExpiresAt
-          } else {
-            targetUpdated.activationDays = String(newActivationValue)
-            targetUpdated.activationUnit = newActivationUnit
+          if (!isTotalCostLimitPermanentKey) {
+            if (newExpiresAt) {
+              targetUpdated.expiresAt = newExpiresAt
+            } else {
+              targetUpdated.activationDays = String(newActivationValue)
+              targetUpdated.activationUnit = newActivationUnit
+            }
           }
           if (newTotalCostLimit) {
             targetUpdated.totalCostLimit = newTotalCostLimit

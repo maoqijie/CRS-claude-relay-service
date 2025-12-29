@@ -462,9 +462,16 @@ router.get('/usage-trend', authenticateAdmin, async (req, res) => {
         const hour = String(tzCurrentHour.getUTCHours()).padStart(2, '0')
         const hourKey = `${dateStr}:${hour}`
 
-        // 获取当前小时的模型统计数据
-        const modelPattern = `usage:model:hourly:*:${hourKey}`
-        const modelKeys = await redis.scanKeys(modelPattern)
+        // 获取当前小时的模型统计数据（优先 actual_model；无数据时回退 legacy model）
+        const modelPattern = `usage:actual_model:hourly:*:${hourKey}`
+        let modelKeys = await redis.scanKeys(modelPattern)
+        if (modelKeys.length === 0) {
+          const legacyPattern = modelPattern.replace('usage:actual_model:', 'usage:model:')
+          const legacyKeys = await redis.scanKeys(legacyPattern)
+          if (legacyKeys.length > 0) {
+            modelKeys = legacyKeys
+          }
+        }
 
         let hourInputTokens = 0
         let hourOutputTokens = 0
@@ -474,7 +481,9 @@ router.get('/usage-trend', authenticateAdmin, async (req, res) => {
         let hourCost = 0
 
         for (const modelKey of modelKeys) {
-          const modelMatch = modelKey.match(/usage:model:hourly:(.+):\d{4}-\d{2}-\d{2}:\d{2}$/)
+          const modelMatch = modelKey.match(
+            /usage:(?:actual_model|model):hourly:(.+):\d{4}-\d{2}-\d{2}:\d{2}$/
+          )
           if (!modelMatch) {
             continue
           }
@@ -580,13 +589,22 @@ router.get('/usage-trend', authenticateAdmin, async (req, res) => {
         // 按模型统计使用量
         // const modelUsageMap = new Map();
 
-        // 获取当天所有模型的使用数据
-        const modelPattern = `usage:model:daily:*:${dateStr}`
-        const modelKeys = await redis.scanKeys(modelPattern)
+        // 获取当天所有模型的使用数据（优先 actual_model；无数据时回退 legacy model）
+        const modelPattern = `usage:actual_model:daily:*:${dateStr}`
+        let modelKeys = await redis.scanKeys(modelPattern)
+        if (modelKeys.length === 0) {
+          const legacyPattern = modelPattern.replace('usage:actual_model:', 'usage:model:')
+          const legacyKeys = await redis.scanKeys(legacyPattern)
+          if (legacyKeys.length > 0) {
+            modelKeys = legacyKeys
+          }
+        }
 
         for (const modelKey of modelKeys) {
           // 解析模型名称
-          const modelMatch = modelKey.match(/usage:model:daily:(.+):\d{4}-\d{2}-\d{2}$/)
+          const modelMatch = modelKey.match(
+            /usage:(?:actual_model|model):daily:(.+):\d{4}-\d{2}-\d{2}$/
+          )
           if (!modelMatch) {
             continue
           }
@@ -711,7 +729,7 @@ router.get('/api-keys/:keyId/model-stats', authenticateAdmin, async (req, res) =
       // 生成日期范围内所有日期的搜索模式
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateStr = redis.getDateStringInTimezone(d)
-        searchPatterns.push(`usage:${keyId}:model:daily:*:${dateStr}`)
+        searchPatterns.push(`usage:${keyId}:actual_model:daily:*:${dateStr}`)
       }
 
       logger.info(
@@ -721,8 +739,8 @@ router.get('/api-keys/:keyId/model-stats', authenticateAdmin, async (req, res) =
       // 原有的预设期间逻辑
       const pattern =
         period === 'daily'
-          ? `usage:${keyId}:model:daily:*:${today}`
-          : `usage:${keyId}:model:monthly:*:${currentMonth}`
+          ? `usage:${keyId}:actual_model:daily:*:${today}`
+          : `usage:${keyId}:actual_model:monthly:*:${currentMonth}`
       searchPatterns = [pattern]
       logger.info(`📊 Preset period pattern: ${pattern}`)
     }
@@ -732,13 +750,21 @@ router.get('/api-keys/:keyId/model-stats', authenticateAdmin, async (req, res) =
     const modelStats = [] // 定义结果数组
 
     for (const pattern of searchPatterns) {
-      const keys = await redis.scanKeys(pattern)
+      let keys = await redis.scanKeys(pattern)
+      if (keys.length === 0 && pattern.includes(':actual_model:')) {
+        const legacyPattern = pattern.replace(':actual_model:', ':model:')
+        const legacyKeys = await redis.scanKeys(legacyPattern)
+        if (legacyKeys.length > 0) {
+          keys = legacyKeys
+          logger.info(`📊 Pattern ${pattern} empty, fallback to legacy pattern ${legacyPattern}`)
+        }
+      }
       logger.info(`📊 Pattern ${pattern} found ${keys.length} keys`)
 
       for (const key of keys) {
         const match =
-          key.match(/usage:.+:model:daily:(.+):\d{4}-\d{2}-\d{2}$/) ||
-          key.match(/usage:.+:model:monthly:(.+):\d{4}-\d{2}$/)
+          key.match(/usage:.+:(?:actual_model|model):daily:(.+):\d{4}-\d{2}-\d{2}$/) ||
+          key.match(/usage:.+:(?:actual_model|model):monthly:(.+):\d{4}-\d{2}$/)
 
         if (!match) {
           logger.warn(`📊 Pattern mismatch for key: ${key}`)
@@ -1673,9 +1699,9 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
 
     let pattern
     if (period === 'today') {
-      pattern = `usage:model:daily:*:${today}`
+      pattern = `usage:actual_model:daily:*:${today}`
     } else if (period === 'monthly') {
-      pattern = `usage:model:monthly:*:${currentMonth}`
+      pattern = `usage:actual_model:monthly:*:${currentMonth}`
     } else if (period === '7days') {
       // 最近7天：汇总daily数据
       const modelUsageMap = new Map()
@@ -1688,12 +1714,19 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
         const dateStr = `${currentTzDate.getUTCFullYear()}-${String(
           currentTzDate.getUTCMonth() + 1
         ).padStart(2, '0')}-${String(currentTzDate.getUTCDate()).padStart(2, '0')}`
-        const dayPattern = `usage:model:daily:*:${dateStr}`
+        const dayPattern = `usage:actual_model:daily:*:${dateStr}`
 
-        const dayKeys = await redis.scanKeys(dayPattern)
+        let dayKeys = await redis.scanKeys(dayPattern)
+        if (dayKeys.length === 0) {
+          const legacyPattern = dayPattern.replace('usage:actual_model:', 'usage:model:')
+          const legacyKeys = await redis.scanKeys(legacyPattern)
+          if (legacyKeys.length > 0) {
+            dayKeys = legacyKeys
+          }
+        }
 
         for (const key of dayKeys) {
-          const modelMatch = key.match(/usage:model:daily:(.+):\d{4}-\d{2}-\d{2}$/)
+          const modelMatch = key.match(/usage:(?:actual_model|model):daily:(.+):\d{4}-\d{2}-\d{2}$/)
           if (!modelMatch) {
             continue
           }
@@ -1776,7 +1809,13 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
       })
     } else {
       // 全部时间，先尝试从Redis获取所有历史模型统计数据（只使用monthly数据避免重复计算）
-      const allModelKeys = await redis.scanKeys('usage:model:monthly:*:*')
+      let allModelKeys = await redis.scanKeys('usage:actual_model:monthly:*:*')
+      if (allModelKeys.length === 0) {
+        const legacyKeys = await redis.scanKeys('usage:model:monthly:*:*')
+        if (legacyKeys.length > 0) {
+          allModelKeys = legacyKeys
+        }
+      }
       logger.info(`💰 Total period calculation: found ${allModelKeys.length} monthly model keys`)
 
       if (allModelKeys.length > 0) {
@@ -1785,7 +1824,7 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
 
         for (const key of allModelKeys) {
           // 解析模型名称（只处理monthly数据）
-          const modelMatch = key.match(/usage:model:monthly:(.+):(\d{4}-\d{2})$/)
+          const modelMatch = key.match(/usage:(?:actual_model|model):monthly:(.+):(\d{4}-\d{2})$/)
           if (!modelMatch) {
             continue
           }
@@ -1878,13 +1917,20 @@ router.get('/usage-costs', authenticateAdmin, async (req, res) => {
     }
 
     // 对于今日或本月，从Redis获取详细的模型统计
-    const keys = await redis.scanKeys(pattern)
+    let keys = await redis.scanKeys(pattern)
+    if (keys.length === 0 && pattern.startsWith('usage:actual_model:')) {
+      const legacyPattern = pattern.replace('usage:actual_model:', 'usage:model:')
+      const legacyKeys = await redis.scanKeys(legacyPattern)
+      if (legacyKeys.length > 0) {
+        keys = legacyKeys
+      }
+    }
 
     for (const key of keys) {
       const match = key.match(
         period === 'today'
-          ? /usage:model:daily:(.+):\d{4}-\d{2}-\d{2}$/
-          : /usage:model:monthly:(.+):\d{4}-\d{2}$/
+          ? /usage:(?:actual_model|model):daily:(.+):\d{4}-\d{2}-\d{2}$/
+          : /usage:(?:actual_model|model):monthly:(.+):\d{4}-\d{2}$/
       )
 
       if (!match) {
