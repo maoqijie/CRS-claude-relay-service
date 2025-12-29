@@ -146,6 +146,7 @@ class ApiKeyService {
       dailyCostLimit = 0,
       totalCostLimit = 0,
       weeklyOpusCostLimit = 0,
+      enableModelPassthrough = false, // 新增：模型透传（默认关闭）
       tags = [],
       activationDays = 0, // 新增：激活后有效天数（0表示不使用此功能）
       activationUnit = 'days', // 新增：激活时间单位 'hours' 或 'days'
@@ -184,6 +185,7 @@ class ApiKeyService {
       dailyCostLimit: String(dailyCostLimit || 0),
       totalCostLimit: String(totalCostLimit || 0),
       weeklyOpusCostLimit: String(weeklyOpusCostLimit || 0),
+      enableModelPassthrough: String(enableModelPassthrough || false),
       tags: JSON.stringify(tags || []),
       activationDays: String(activationDays || 0), // 新增：激活后有效天数
       activationUnit: activationUnit || 'days', // 新增：激活时间单位
@@ -238,6 +240,7 @@ class ApiKeyService {
       dailyCostLimit: parseFloat(keyData.dailyCostLimit || 0),
       totalCostLimit: parseFloat(keyData.totalCostLimit || 0),
       weeklyOpusCostLimit: parseFloat(keyData.weeklyOpusCostLimit || 0),
+      enableModelPassthrough: keyData.enableModelPassthrough === 'true',
       tags: JSON.parse(keyData.tags || '[]'),
       activationDays: parseInt(keyData.activationDays || 0),
       activationUnit: keyData.activationUnit || 'days',
@@ -417,6 +420,7 @@ class ApiKeyService {
           rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
           rateLimitCost: parseFloat(keyData.rateLimitCost || 0), // 新增：速率限制费用字段
           enableModelRestriction: keyData.enableModelRestriction === 'true',
+          enableModelPassthrough: keyData.enableModelPassthrough === 'true',
           restrictedModels,
           enableClientRestriction: keyData.enableClientRestriction === 'true',
           allowedClients,
@@ -571,6 +575,7 @@ class ApiKeyService {
           rateLimitRequests: parseInt(keyData.rateLimitRequests || 0),
           rateLimitCost: parseFloat(keyData.rateLimitCost || 0),
           enableModelRestriction: keyData.enableModelRestriction === 'true',
+          enableModelPassthrough: keyData.enableModelPassthrough === 'true',
           restrictedModels,
           enableClientRestriction: keyData.enableClientRestriction === 'true',
           allowedClients,
@@ -638,6 +643,7 @@ class ApiKeyService {
         key.currentConcurrency = await redis.getConcurrency(key.id)
         key.isActive = key.isActive === 'true'
         key.enableModelRestriction = key.enableModelRestriction === 'true'
+        key.enableModelPassthrough = key.enableModelPassthrough === 'true'
         key.enableClientRestriction = key.enableClientRestriction === 'true'
         key.permissions = key.permissions || 'all' // 兼容旧数据
         key.dailyCostLimit = parseFloat(key.dailyCostLimit || 0)
@@ -810,6 +816,7 @@ class ApiKeyService {
         'dailyCostLimit',
         'totalCostLimit',
         'weeklyOpusCostLimit',
+        'enableModelPassthrough',
         'tags',
         'userId', // 新增：用户ID（所有者变更）
         'userUsername', // 新增：用户名（所有者变更）
@@ -824,6 +831,7 @@ class ApiKeyService {
             updatedData[field] = JSON.stringify(value || [])
           } else if (
             field === 'enableModelRestriction' ||
+            field === 'enableModelPassthrough' ||
             field === 'enableClientRestriction' ||
             field === 'isActivated'
           ) {

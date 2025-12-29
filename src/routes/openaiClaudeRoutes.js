@@ -274,7 +274,9 @@ async function handleChatCompletion(req, res, apiKeyData) {
         (usage) => {
           // 记录使用统计
           if (usage && usage.input_tokens !== undefined && usage.output_tokens !== undefined) {
-            const model = usage.model || claudeRequest.model
+            const requestedModelForStats = claudeRequest.model || 'unknown'
+            const actualModelForStats =
+              apiKeyData.enableModelPassthrough === true ? usage.model || null : null
             const cacheCreateTokens =
               (usage.cache_creation && typeof usage.cache_creation === 'object'
                 ? (usage.cache_creation.ephemeral_5m_input_tokens || 0) +
@@ -287,8 +289,8 @@ async function handleChatCompletion(req, res, apiKeyData) {
               .recordUsageWithDetails(
                 apiKeyData.id,
                 usage, // 直接传递整个 usage 对象，包含可能的 cache_creation 详细数据
-                model, // 请求模型（用于用户查询统计）
-                null, // 实际模型（OpenAI格式转换，实际模型与请求模型相同）
+                requestedModelForStats, // 请求模型（用于用户查询统计）
+                actualModelForStats, // 实际模型（用于管理员统计，可按 Key 开关隐藏）
                 accountId
               )
               .then((usageResult) =>
@@ -300,7 +302,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
                     cacheCreateTokens,
                     cacheReadTokens
                   },
-                  model,
+                  requestedModelForStats,
                   'openai-claude-stream',
                   { costOverride: usageResult?.billableCost }
                 )
@@ -367,6 +369,8 @@ async function handleChatCompletion(req, res, apiKeyData) {
       // 记录使用统计
       if (claudeData.usage) {
         const { usage } = claudeData
+        const actualModelForStats =
+          apiKeyData.enableModelPassthrough === true ? claudeData.model || null : null
         const cacheCreateTokens =
           (usage.cache_creation && typeof usage.cache_creation === 'object'
             ? (usage.cache_creation.ephemeral_5m_input_tokens || 0) +
@@ -379,7 +383,7 @@ async function handleChatCompletion(req, res, apiKeyData) {
             apiKeyData.id,
             usage, // 直接传递整个 usage 对象，包含可能的 cache_creation 详细数据
             claudeRequest.model, // 请求模型（用于用户查询统计）
-            null, // 实际模型（OpenAI格式转换，实际模型与请求模型相同）
+            actualModelForStats, // 实际模型（用于管理员统计，可按 Key 开关隐藏）
             accountId
           )
           .then((usageResult) =>

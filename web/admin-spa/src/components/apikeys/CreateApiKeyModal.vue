@@ -286,6 +286,27 @@
             </div>
           </div>
 
+          <!-- 计费选项 -->
+          <div>
+            <div class="mb-2 flex items-center">
+              <input
+                id="enableModelPassthrough"
+                v-model="form.enableModelPassthrough"
+                class="h-4 w-4 rounded border-gray-300 bg-gray-100 text-blue-600 focus:ring-blue-500"
+                type="checkbox"
+              />
+              <label
+                class="ml-2 cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-300"
+                for="enableModelPassthrough"
+              >
+                开启模型透传
+              </label>
+            </div>
+            <p class="ml-6 text-xs text-gray-500 dark:text-gray-400">
+              默认关闭：按客户端请求的模型返回/统计；开启后：按上游返回的真实模型返回/统计（用于费用与模型分布）
+            </p>
+          </div>
+
           <div>
             <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >每日费用限制 (美元)</label
@@ -973,6 +994,7 @@ const form = reactive({
   bedrockAccountId: '',
   droidAccountId: '',
   enableModelRestriction: false,
+  enableModelPassthrough: false,
   restrictedModels: [],
   modelInput: '',
   enableClientRestriction: false,
@@ -1390,6 +1412,7 @@ const createApiKey = async () => {
       permissions: form.permissions,
       tags: form.tags.length > 0 ? form.tags : undefined,
       enableModelRestriction: form.enableModelRestriction,
+      enableModelPassthrough: form.enableModelPassthrough,
       restrictedModels: form.restrictedModels,
       enableClientRestriction: form.enableClientRestriction,
       allowedClients: form.allowedClients

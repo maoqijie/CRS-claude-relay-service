@@ -17,6 +17,7 @@ const requestIdentityService = require('./requestIdentityService')
 const { createClaudeTestPayload } = require('../utils/testPayloadHelper')
 const userMessageQueueService = require('./userMessageQueueService')
 const { isStreamWritable } = require('../utils/streamHelper')
+const { getModelOverride, rewriteAnthropicSseLineModel } = require('../utils/modelPassthrough')
 const proxyPolicyService = require('./proxyPolicyService')
 const { v4: uuidv4 } = require('uuid')
 
@@ -1555,6 +1556,10 @@ class ClaudeRelayService {
       const proxyAgent = await this._getProxyAgent(accountId)
 
       // 发送流式请求并捕获usage数据
+      const streamRequestOptions = {
+        ...options,
+        modelOverride: getModelOverride(apiKeyData, requestBody?.model)
+      }
       await this._makeClaudeStreamRequestWithUsageCapture(
         processedBody,
         accessToken,
@@ -1571,7 +1576,7 @@ class ClaudeRelayService {
         accountType,
         sessionHash,
         streamTransformer,
-        options,
+        streamRequestOptions,
         isDedicatedOfficialAccount,
         // 📬 新增回调：在收到响应头时释放队列锁
         async () => {
@@ -1684,6 +1689,8 @@ class ClaudeRelayService {
     }
 
     const { bodyString, headers } = prepared
+
+    const modelOverride = requestOptions?.modelOverride || null
 
     return new Promise((resolve, reject) => {
       const url = new URL(this.claudeApiUrl)
@@ -1975,14 +1982,18 @@ class ClaudeRelayService {
             const lines = buffer.split('\n')
             buffer = lines.pop() || '' // 保留最后的不完整行
 
-            // 转发已处理的完整行到客户端
-            if (lines.length > 0) {
-              if (isStreamWritable(responseStream)) {
-                const linesToForward = lines.join('\n') + (lines.length > 0 ? '\n' : '')
-                // 如果有流转换器，应用转换
-                if (streamTransformer) {
-                  const transformed = streamTransformer(linesToForward)
-                  if (transformed) {
+	            // 转发已处理的完整行到客户端
+	            if (lines.length > 0) {
+	              if (isStreamWritable(responseStream)) {
+	                const linesToForward =
+	                  (modelOverride
+	                    ? lines.map((line) => rewriteAnthropicSseLineModel(line, modelOverride))
+	                    : lines
+	                  ).join('\n') + (lines.length > 0 ? '\n' : '')
+	                // 如果有流转换器，应用转换
+	                if (streamTransformer) {
+	                  const transformed = streamTransformer(linesToForward)
+	                  if (transformed) {
                     responseStream.write(transformed)
                   }
                 } else {

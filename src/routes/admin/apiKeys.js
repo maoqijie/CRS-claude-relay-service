@@ -1265,6 +1265,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       dailyCostLimit,
       totalCostLimit,
       weeklyOpusCostLimit,
+      enableModelPassthrough,
       tags,
       activationDays, // 新增：激活后有效天数
       activationUnit, // 新增：激活时间单位 (hours/days)
@@ -1323,6 +1324,10 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
     // 验证模型限制字段
     if (enableModelRestriction !== undefined && typeof enableModelRestriction !== 'boolean') {
       return res.status(400).json({ error: 'Enable model restriction must be a boolean' })
+    }
+
+    if (enableModelPassthrough !== undefined && typeof enableModelPassthrough !== 'boolean') {
+      return res.status(400).json({ error: 'Enable model passthrough must be a boolean' })
     }
 
     if (restrictedModels !== undefined && !Array.isArray(restrictedModels)) {
@@ -1425,6 +1430,7 @@ router.post('/api-keys', authenticateAdmin, async (req, res) => {
       dailyCostLimit,
       totalCostLimit,
       weeklyOpusCostLimit,
+      enableModelPassthrough,
       tags,
       activationDays,
       activationUnit,
@@ -1467,6 +1473,7 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
       dailyCostLimit,
       totalCostLimit,
       weeklyOpusCostLimit,
+      enableModelPassthrough,
       tags,
       activationDays,
       activationUnit,
@@ -1530,6 +1537,7 @@ router.post('/api-keys/batch', authenticateAdmin, async (req, res) => {
           dailyCostLimit,
           totalCostLimit,
           weeklyOpusCostLimit,
+          enableModelPassthrough,
           tags,
           activationDays,
           activationUnit,
@@ -1786,6 +1794,7 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
       droidAccountId,
       permissions,
       enableModelRestriction,
+      enableModelPassthrough,
       restrictedModels,
       enableClientRestriction,
       allowedClients,
@@ -1896,6 +1905,13 @@ router.put('/api-keys/:keyId', authenticateAdmin, async (req, res) => {
         return res.status(400).json({ error: 'Enable model restriction must be a boolean' })
       }
       updates.enableModelRestriction = enableModelRestriction
+    }
+
+    if (enableModelPassthrough !== undefined) {
+      if (typeof enableModelPassthrough !== 'boolean') {
+        return res.status(400).json({ error: 'Enable model passthrough must be a boolean' })
+      }
+      updates.enableModelPassthrough = enableModelPassthrough
     }
 
     if (restrictedModels !== undefined) {

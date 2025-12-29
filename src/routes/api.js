@@ -8,7 +8,7 @@ const unifiedClaudeScheduler = require('../services/unifiedClaudeScheduler')
 const apiKeyService = require('../services/apiKeyService')
 const { authenticateApiKey } = require('../middleware/auth')
 const logger = require('../utils/logger')
-const { getEffectiveModel, parseVendorPrefixedModel } = require('../utils/modelHelper')
+const { getEffectiveModel } = require('../utils/modelHelper')
 const sessionHelper = require('../utils/sessionHelper')
 const { updateRateLimitCounters } = require('../utils/rateLimitHelper')
 const claudeRelayConfigService = require('../services/claudeRelayConfigService')
@@ -116,6 +116,7 @@ function isOldSession(body) {
 async function handleMessagesRequest(req, res) {
   try {
     const startTime = Date.now()
+    const modelPassthroughEnabled = req.apiKey?.enableModelPassthrough === true
 
     // Claude 服务权限校验，阻止未授权的 Key
     if (
@@ -421,10 +422,11 @@ async function handleMessagesRequest(req, res) {
                 cacheCreateTokens = ephemeral5mTokens + ephemeral1hTokens
               }
 
-              const cacheReadTokens = usageData.cache_read_input_tokens || 0
-              const actualModel = usageData.model || 'unknown'
-              // 下游客户端请求的模型（用于用户查询统计）
-              const requestedModelForStats = requestedModel || 'unknown'
+	              const cacheReadTokens = usageData.cache_read_input_tokens || 0
+	              const actualModel = usageData.model || 'unknown'
+	              const actualModelForStats = modelPassthroughEnabled ? actualModel : null
+	              // 下游客户端请求的模型（用于用户查询统计）
+	              const requestedModelForStats = requestedModel || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const { accountId: usageAccountId } = usageData
@@ -445,15 +447,15 @@ async function handleMessagesRequest(req, res) {
                 }
               }
 
-              apiKeyService
-                .recordUsageWithDetails(
-                  req.apiKey.id,
-                  usageObject,
-                  requestedModelForStats, // 请求模型（用于用户查询统计）
-                  actualModel, // 实际模型（用于管理员统计）
-                  usageAccountId,
-                  'claude'
-                )
+	              apiKeyService
+	                .recordUsageWithDetails(
+	                  req.apiKey.id,
+	                  usageObject,
+	                  requestedModelForStats, // 请求模型（用于用户查询统计）
+	                  actualModelForStats, // 实际模型（用于管理员统计，可按 Key 开关隐藏）
+	                  usageAccountId,
+	                  'claude'
+	                )
                 .then((usageResult) =>
                   queueRateLimitUpdate(
                     req.rateLimitInfo,
@@ -517,10 +519,11 @@ async function handleMessagesRequest(req, res) {
                 cacheCreateTokens = ephemeral5mTokens + ephemeral1hTokens
               }
 
-              const cacheReadTokens = usageData.cache_read_input_tokens || 0
-              const actualModel = usageData.model || 'unknown'
-              // 下游客户端请求的模型（用于用户查询统计）
-              const requestedModelForStats = requestedModel || 'unknown'
+	              const cacheReadTokens = usageData.cache_read_input_tokens || 0
+	              const actualModel = usageData.model || 'unknown'
+	              const actualModelForStats = modelPassthroughEnabled ? actualModel : null
+	              // 下游客户端请求的模型（用于用户查询统计）
+	              const requestedModelForStats = requestedModel || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const usageAccountId = usageData.accountId
@@ -541,15 +544,15 @@ async function handleMessagesRequest(req, res) {
                 }
               }
 
-              apiKeyService
-                .recordUsageWithDetails(
-                  req.apiKey.id,
-                  usageObject,
-                  requestedModelForStats, // 请求模型（用于用户查询统计）
-                  actualModel, // 实际模型（用于管理员统计）
-                  usageAccountId,
-                  'claude-console'
-                )
+	              apiKeyService
+	                .recordUsageWithDetails(
+	                  req.apiKey.id,
+	                  usageObject,
+	                  requestedModelForStats, // 请求模型（用于用户查询统计）
+	                  actualModelForStats, // 实际模型（用于管理员统计，可按 Key 开关隐藏）
+	                  usageAccountId,
+	                  'claude-console'
+	                )
                 .then((usageResult) =>
                   queueRateLimitUpdate(
                     req.rateLimitInfo,
@@ -665,10 +668,11 @@ async function handleMessagesRequest(req, res) {
                 cacheCreateTokens = ephemeral5mTokens + ephemeral1hTokens
               }
 
-              const cacheReadTokens = usageData.cache_read_input_tokens || 0
-              const actualModel = usageData.model || 'unknown'
-              // 下游客户端请求的模型（用于用户查询统计）
-              const requestedModelForStats = requestedModel || 'unknown'
+	              const cacheReadTokens = usageData.cache_read_input_tokens || 0
+	              const actualModel = usageData.model || 'unknown'
+	              const actualModelForStats = modelPassthroughEnabled ? actualModel : null
+	              // 下游客户端请求的模型（用于用户查询统计）
+	              const requestedModelForStats = requestedModel || 'unknown'
 
               // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
               const usageAccountId = usageData.accountId
@@ -689,15 +693,15 @@ async function handleMessagesRequest(req, res) {
                 }
               }
 
-              apiKeyService
-                .recordUsageWithDetails(
-                  req.apiKey.id,
-                  usageObject,
-                  requestedModelForStats, // 请求模型（用于用户查询统计）
-                  actualModel, // 实际模型（用于管理员统计）
-                  usageAccountId,
-                  'ccr'
-                )
+	              apiKeyService
+	                .recordUsageWithDetails(
+	                  req.apiKey.id,
+	                  usageObject,
+	                  requestedModelForStats, // 请求模型（用于用户查询统计）
+	                  actualModelForStats, // 实际模型（用于管理员统计，可按 Key 开关隐藏）
+	                  usageAccountId,
+	                  'ccr'
+	                )
                 .then((usageResult) =>
                   queueRateLimitUpdate(
                     req.rateLimitInfo,
@@ -1035,59 +1039,96 @@ async function handleMessagesRequest(req, res) {
 
       let usageRecorded = false
 
-      // 尝试解析JSON响应并提取usage信息
-      try {
-        const jsonData = JSON.parse(response.body)
+	      // 尝试解析JSON响应并提取usage信息
+	      try {
+	        const jsonData = JSON.parse(response.body)
 
-        logger.info('📊 Parsed Claude API response:', JSON.stringify(jsonData, null, 2))
+	        logger.info('📊 Parsed Claude API response:', JSON.stringify(jsonData, null, 2))
 
-        // 从Claude API响应中提取usage信息（完整的token分类体系）
-        if (
-          jsonData.usage &&
-          jsonData.usage.input_tokens !== undefined &&
-          jsonData.usage.output_tokens !== undefined
-        ) {
-          const inputTokens = jsonData.usage.input_tokens || 0
-          const outputTokens = jsonData.usage.output_tokens || 0
-          const cacheCreateTokens = jsonData.usage.cache_creation_input_tokens || 0
-          const cacheReadTokens = jsonData.usage.cache_read_input_tokens || 0
-          // Parse the model to remove vendor prefix if present (e.g., "ccr,gemini-2.5-pro" -> "gemini-2.5-pro")
-          const rawModel = jsonData.model || req.body.model || 'unknown'
-          const { baseModel } = parseVendorPrefixedModel(rawModel)
-          const model = baseModel || rawModel
+	        const requestedModelForStats = req.body.model || 'unknown'
+	        const upstreamModel = typeof jsonData.model === 'string' ? jsonData.model : null
 
-          // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
-          const { accountId: responseAccountId } = response
-          const usageResult = await apiKeyService.recordUsage(
-            req.apiKey.id,
-            inputTokens,
-            outputTokens,
-            cacheCreateTokens,
-            cacheReadTokens,
-            model,
-            responseAccountId
-          )
+	        // 默认不透传上游真实模型：客户端看到的 model 与请求保持一致
+	        if (!modelPassthroughEnabled && typeof requestedModelForStats === 'string') {
+	          jsonData.model = requestedModelForStats
+	        }
 
-          await queueRateLimitUpdate(
-            req.rateLimitInfo,
-            {
-              inputTokens,
-              outputTokens,
-              cacheCreateTokens,
-              cacheReadTokens
-            },
-            model,
-            'claude-non-stream',
-            { costOverride: usageResult?.billableCost }
-          )
+	        // 从Claude API响应中提取usage信息（完整的token分类体系）
+	        if (
+	          jsonData.usage &&
+	          jsonData.usage.input_tokens !== undefined &&
+	          jsonData.usage.output_tokens !== undefined
+	        ) {
+	          const { usage } = jsonData
+	          const inputTokens = usage.input_tokens || 0
+	          const outputTokens = usage.output_tokens || 0
+	          let cacheCreateTokens = usage.cache_creation_input_tokens || 0
+	          let ephemeral5mTokens = 0
+	          let ephemeral1hTokens = 0
 
-          usageRecorded = true
-          logger.api(
-            `📊 Non-stream usage recorded (real) - Model: ${model}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
-          )
-        } else {
-          logger.warn('⚠️ No usage data found in Claude API JSON response')
-        }
+	          if (usage.cache_creation && typeof usage.cache_creation === 'object') {
+	            ephemeral5mTokens = usage.cache_creation.ephemeral_5m_input_tokens || 0
+	            ephemeral1hTokens = usage.cache_creation.ephemeral_1h_input_tokens || 0
+	            cacheCreateTokens = ephemeral5mTokens + ephemeral1hTokens
+	          }
+
+	          const cacheReadTokens = usage.cache_read_input_tokens || 0
+	          const actualModelForStats = modelPassthroughEnabled ? upstreamModel : null
+
+	          // 记录真实的token使用量（包含模型信息和所有4种token以及账户ID）
+	          const { accountId: responseAccountId } = response
+	          const usageObject = {
+	            input_tokens: inputTokens,
+	            output_tokens: outputTokens,
+	            cache_creation_input_tokens: cacheCreateTokens,
+	            cache_read_input_tokens: cacheReadTokens
+	          }
+
+	          if (ephemeral5mTokens > 0 || ephemeral1hTokens > 0) {
+	            usageObject.cache_creation = {
+	              ephemeral_5m_input_tokens: ephemeral5mTokens,
+	              ephemeral_1h_input_tokens: ephemeral1hTokens
+	            }
+	          }
+
+	          const accountTypeForUsage =
+	            accountType === 'claude-official'
+	              ? 'claude'
+	              : accountType === 'claude-console'
+	                ? 'claude-console'
+	                : accountType === 'ccr'
+	                  ? 'ccr'
+	                  : accountType
+
+	          const usageResult = await apiKeyService.recordUsageWithDetails(
+	            req.apiKey.id,
+	            usageObject,
+	            requestedModelForStats,
+	            actualModelForStats,
+	            responseAccountId,
+	            accountTypeForUsage
+	          )
+
+	          await queueRateLimitUpdate(
+	            req.rateLimitInfo,
+	            {
+	              inputTokens,
+	              outputTokens,
+	              cacheCreateTokens,
+	              cacheReadTokens
+	            },
+	            requestedModelForStats,
+	            'claude-non-stream',
+	            { costOverride: usageResult?.billableCost }
+	          )
+
+	          usageRecorded = true
+	          logger.api(
+	            `📊 Non-stream usage recorded (real) - Requested Model: ${requestedModelForStats}, Actual Model: ${upstreamModel || requestedModelForStats}, Input: ${inputTokens}, Output: ${outputTokens}, Cache Create: ${cacheCreateTokens}, Cache Read: ${cacheReadTokens}, Total: ${inputTokens + outputTokens + cacheCreateTokens + cacheReadTokens} tokens`
+	          )
+	        } else {
+	          logger.warn('⚠️ No usage data found in Claude API JSON response')
+	        }
 
         // 使用 Express 内建的 res.json() 发送响应（简单可靠）
         res.json(jsonData)

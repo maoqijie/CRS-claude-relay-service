@@ -11,6 +11,7 @@ const {
 } = require('../utils/errorSanitizer')
 const userMessageQueueService = require('./userMessageQueueService')
 const { isStreamWritable } = require('../utils/streamHelper')
+const { getModelOverride, rewriteAnthropicSseLineModel } = require('../utils/modelPassthrough')
 const proxyPolicyService = require('./proxyPolicyService')
 const { filterForClaude } = require('../utils/headerFilter')
 
@@ -643,6 +644,10 @@ class ClaudeConsoleRelayService {
       const proxyAgent = claudeConsoleAccountService._createProxyAgent(effectiveProxy)
 
       // 发送流式请求
+      const streamRequestOptions = {
+        ...options,
+        modelOverride: getModelOverride(apiKeyData, requestBody?.model)
+      }
       await this._makeClaudeConsoleStreamRequest(
         modifiedRequestBody,
         account,
@@ -652,7 +657,7 @@ class ClaudeConsoleRelayService {
         accountId,
         usageCallback,
         streamTransformer,
-        options,
+        streamRequestOptions,
         // 📬 回调：在收到响应头时释放队列锁
         async () => {
           if (queueLockAcquired && queueRequestId && accountId) {
@@ -741,6 +746,8 @@ class ClaudeConsoleRelayService {
     requestOptions = {},
     onResponseHeaderReceived = null
   ) {
+    const modelOverride = requestOptions?.modelOverride || null
+
     return new Promise((resolve, reject) => {
       let aborted = false
 
@@ -980,14 +987,18 @@ class ClaudeConsoleRelayService {
               buffer = lines.pop() || ''
 
               // 转发数据并解析usage
-              if (lines.length > 0) {
-                // 检查流是否可写（客户端连接是否有效）
-                if (isStreamWritable(responseStream)) {
-                  const linesToForward = lines.join('\n') + (lines.length > 0 ? '\n' : '')
+	              if (lines.length > 0) {
+	                // 检查流是否可写（客户端连接是否有效）
+	                if (isStreamWritable(responseStream)) {
+	                  const linesToForward =
+	                    (modelOverride
+	                      ? lines.map((line) => rewriteAnthropicSseLineModel(line, modelOverride))
+	                      : lines
+	                    ).join('\n') + (lines.length > 0 ? '\n' : '')
 
-                  // 应用流转换器如果有
-                  let dataToWrite = linesToForward
-                  if (streamTransformer) {
+	                  // 应用流转换器如果有
+	                  let dataToWrite = linesToForward
+	                  if (streamTransformer) {
                     const transformed = streamTransformer(linesToForward)
                     if (transformed) {
                       dataToWrite = transformed

@@ -5,6 +5,7 @@ const config = require('../../config/config')
 const { parseVendorPrefixedModel } = require('../utils/modelHelper')
 const userMessageQueueService = require('./userMessageQueueService')
 const { isStreamWritable } = require('../utils/streamHelper')
+const { getModelOverride, rewriteAnthropicSseLineModel } = require('../utils/modelPassthrough')
 
 class CcrRelayService {
   constructor() {
@@ -450,6 +451,10 @@ class CcrRelayService {
       const proxyAgent = ccrAccountService._createProxyAgent(account.proxy)
 
       // 发送流式请求
+      const streamRequestOptions = {
+        ...options,
+        modelOverride: getModelOverride(apiKeyData, requestBody?.model)
+      }
       await this._makeCcrStreamRequest(
         modifiedRequestBody,
         account,
@@ -459,7 +464,7 @@ class CcrRelayService {
         accountId,
         usageCallback,
         streamTransformer,
-        options,
+        streamRequestOptions,
         // 📬 回调：在收到响应头时释放队列锁
         async () => {
           if (queueLockAcquired && queueRequestId && accountId) {
@@ -522,6 +527,8 @@ class CcrRelayService {
     requestOptions = {},
     onResponseHeaderReceived = null
   ) {
+    const modelOverride = requestOptions?.modelOverride || null
+
     return new Promise((resolve, reject) => {
       let aborted = false
 
@@ -713,8 +720,11 @@ class CcrRelayService {
 
                   // 应用流转换器（如果提供）
                   let outputLine = line
+                  if (modelOverride) {
+                    outputLine = rewriteAnthropicSseLineModel(outputLine, modelOverride)
+                  }
                   if (streamTransformer && typeof streamTransformer === 'function') {
-                    outputLine = streamTransformer(line)
+                    outputLine = streamTransformer(outputLine)
                   }
 
                   // 写入到响应流

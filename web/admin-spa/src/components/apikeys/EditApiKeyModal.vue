@@ -224,6 +224,27 @@
             </div>
           </div>
 
+          <!-- 计费选项 -->
+          <div>
+            <div class="mb-2 flex items-center">
+              <input
+                id="enableModelPassthrough"
+                v-model="form.enableModelPassthrough"
+                class="h-4 w-4 rounded border-gray-300 bg-gray-100 text-blue-600 focus:ring-blue-500"
+                type="checkbox"
+              />
+              <label
+                class="ml-2 cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-300"
+                for="enableModelPassthrough"
+              >
+                开启模型透传
+              </label>
+            </div>
+            <p class="ml-6 text-xs text-gray-500 dark:text-gray-400">
+              默认关闭：按客户端请求的模型返回/统计；开启后：按上游返回的真实模型返回/统计（用于费用与模型分布）
+            </p>
+          </div>
+
           <div>
             <label class="mb-3 block text-sm font-semibold text-gray-700 dark:text-gray-300"
               >每日费用限制 (美元)</label
@@ -807,6 +828,7 @@ const form = reactive({
   bedrockAccountId: '',
   droidAccountId: '',
   enableModelRestriction: false,
+  enableModelPassthrough: false,
   restrictedModels: [],
   modelInput: '',
   enableClientRestriction: false,
@@ -975,6 +997,7 @@ const updateApiKey = async () => {
 
     // 模型限制 - 始终提交这些字段
     data.enableModelRestriction = form.enableModelRestriction
+    data.enableModelPassthrough = form.enableModelPassthrough
     data.restrictedModels = form.restrictedModels
 
     // 客户端限制 - 始终提交这些字段
@@ -1261,6 +1284,8 @@ onMounted(async () => {
   // 从后端数据中获取实际的启用状态，强制转换为布尔值（Redis返回的是字符串）
   form.enableModelRestriction =
     props.apiKey.enableModelRestriction === true || props.apiKey.enableModelRestriction === 'true'
+  form.enableModelPassthrough =
+    props.apiKey.enableModelPassthrough === true || props.apiKey.enableModelPassthrough === 'true'
   form.enableClientRestriction =
     props.apiKey.enableClientRestriction === true || props.apiKey.enableClientRestriction === 'true'
   // 初始化活跃状态，默认为 true（强制转换为布尔值，因为Redis返回字符串）
