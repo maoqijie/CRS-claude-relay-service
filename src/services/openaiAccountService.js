@@ -736,14 +736,26 @@ async function updateAccount(accountId, updates) {
 
 // 删除账户
 async function deleteAccount(accountId) {
-  const account = await getAccount(accountId)
-  if (!account) {
+  const client = redisClient.getClientSafe()
+  const key = `${OPENAI_ACCOUNT_KEY_PREFIX}${accountId}`
+
+  // 检查键是否存在（而不是检查数据完整性）
+  // 这样即使账号数据损坏也能删除
+  const exists = await client.exists(key)
+  if (!exists) {
     throw new Error('Account not found')
   }
 
-  // 从 Redis 删除
-  const client = redisClient.getClientSafe()
-  await client.del(`${OPENAI_ACCOUNT_KEY_PREFIX}${accountId}`)
+  // 尝试获取 accountType 用于清理（容错处理）
+  let accountType
+  try {
+    accountType = await client.hget(key, 'accountType')
+  } catch (error) {
+    logger.warn(`Failed to get accountType for ${accountId}, will skip shared pool cleanup`)
+  }
+
+  // 删除 Redis 主键（即使数据损坏也能删除）
+  await client.del(key)
 
   // ✅ 删除 PostgreSQL（best effort）
   if (config.postgres?.enabled) {
@@ -754,21 +766,21 @@ async function deleteAccount(accountId) {
     }
   }
 
-  // 从共享账户集合中移除
-  if (account.accountType === 'shared') {
+  // 从共享账户集合中移除（如果成功获取到了 accountType）
+  if (accountType === 'shared') {
     await client.srem(SHARED_OPENAI_ACCOUNTS_KEY, accountId)
   }
 
   // 清理会话映射
   const sessionMappings = await redisClient.scanKeys(`${ACCOUNT_SESSION_MAPPING_PREFIX}*`)
-  for (const key of sessionMappings) {
-    const mappedAccountId = await client.get(key)
+  for (const sessionKey of sessionMappings) {
+    const mappedAccountId = await client.get(sessionKey)
     if (mappedAccountId === accountId) {
-      await client.del(key)
+      await client.del(sessionKey)
     }
   }
 
-  logger.info(`Deleted OpenAI account: ${accountId}`)
+  logger.info(`✅ Deleted OpenAI account: ${accountId} (damaged data safe)`)
   return true
 }
 
